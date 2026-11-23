@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>Цех.Знания — защищённый вход</title><link rel="stylesheet" href="/style.css"><script defer src="/app.js"></script></head>
+<body><div class="shell">
+<header class="topbar"><div class="mark">Ц</div><div class="topbrand"><strong>Цех.Знания</strong><small>Корпоративная база знаний · прототип v0.6</small></div><div class="topmeta" id="system-status">Проверка доступа…</div></header>
+<main><section class="hero"><span class="eyebrow">ДОВЕРЕННЫЙ ДОСТУП · P2</span><h1>Знания доступны в рамках ваших полномочий.</h1><p>Идентификация выполняется через Keycloak. Перед каждым чтением PostgreSQL проверяет актуальные права на исходный документ.</p>
+<div class="actions"><a class="button primary" href="/auth/login" id="login-button">Войти через Keycloak</a><button class="button subtle" id="logout-button" type="button" hidden>Выйти из сеанса</button></div>
+<div class="notice">Испытательная среда. Для коммерческой тайны и корпоративной сети пока не предназначена.</div></section>
+<section class="panel" id="workspace" hidden><div class="panel-header"><div><span class="eyebrow">ВАШ РАБОЧИЙ КОНТУР</span><h2 id="welcome">Сотрудник</h2></div>
+<div class="counts"><div><b id="doc-count">0</b><small>Документов</small></div><div><b id="source-count">0</b><small>Инженерных источников</small></div></div></div>
+<div class="searchbar"><input id="query" type="search" maxlength="250" placeholder="Поиск по разрешённым документам" autocomplete="off"><button class="button primary" id="search-button" type="button">Найти</button><button class="button subtle" id="documents-button" type="button">Все документы</button></div>
+<div class="results" id="results" aria-live="polite">Выполните поиск или откройте список документов.</div></section></main>
+<footer>Policy Gateway · OIDC RS256 + active introspection · PostgreSQL FORCE RLS</footer></div></body></html>

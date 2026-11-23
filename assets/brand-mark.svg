@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="Цех.Знания">
+<title>Цех.Знания</title>
+<rect x="1" y="1" width="62" height="62" rx="15" fill="#16243B"/>
+<!-- The three staggered sheets encode a searchable document archive. -->
+<path d="M17 19H39C43 19 45 21 45 25V44H24C20 44 18 42 18 38V20" fill="none" stroke="#F5F7FF" stroke-width="3.7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M24 13H45C49 13 51 15 51 19V38" fill="none" stroke="#99AAF9" stroke-width="3.3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M25 30H39M25 36H35" fill="none" stroke="#F5F7FF" stroke-width="3" stroke-linecap="round"/>
+<circle cx="45" cy="45" r="9.5" fill="#3158ED" stroke="#16243B" stroke-width="3"/>
+<path d="M51.7 51.7 57 57" stroke="#3158ED" stroke-width="4.5" stroke-linecap="round"/>
+<circle cx="45" cy="45" r="3.2" fill="#EEF2FF"/>
+</svg>

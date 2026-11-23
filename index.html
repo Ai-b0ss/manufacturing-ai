@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#F8F9FC">
+<link rel="icon" href="/assets/brand-mark.svg" type="image/svg+xml">
+<title>Цех.Знания — поиск по документам</title>
+<link rel="stylesheet" href="/assets/font-face.css">
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/design-preview.css">
+</head>
+<body>
+<div id="auth" class="auth-shell">
+  <div class="auth-main">
+    <div class="brand-line"><img class="brand-mark" src="/assets/brand-mark.svg" alt="" width="40" height="40"><div><strong>Цех.Знания</strong><small>Поиск по документам</small></div></div>
+    <div class="auth-inner">
+      <span class="overline">ПРОВЕРКА ВОЗМОЖНОСТЕЙ</span>
+      <h1>Найдите нужный документ.<br><span>Проверьте источник.</span></h1>
+      <p class="lead">Откройте учебный архив, найдите инструкцию по запросу или задайте вопрос по загруженному файлу.</p>
+      <div class="truth-note"><span class="dot"></span><div><strong>Это демонстрационная версия.</strong> Для входа требуется Keycloak. Не загружайте рабочие документы, персональные данные и коммерческую тайну.</div></div>
+      <h2 class="role-title">Вход через корпоративную систему</h2>
+      <p>Авторизация и доступ к документам проверяются Keycloak и PostgreSQL. Учебные роли нельзя выбирать без входа.</p>
+      <button class="primary-button" id="unified-login" type="button">Войти через Keycloak</button>
+      <div id="login-error" class="error-line" role="alert"></div>
+      <form id="login-form" hidden><input id="username" autocomplete="off"><input id="password" type="password"><button type="submit">Войти</button></form>
+    </div>
+    <div class="auth-foot">Данные в примере вымышленные. Доступ только с этого компьютера.</div>
+  </div>
+  <aside class="auth-aside" aria-hidden="true">
+    <div class="aside-top">УЧЕБНЫЙ АРХИВ · ПРИМЕР ИЗ ВЫМЫШЛЕННОГО ДОКУМЕНТА</div>
+    <div class="auth-aside-sample"><div class="auth-sample-meta">ПРИМЕР ПОИСКА</div>
+      <div class="auth-sample-file"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-file-text"></use></svg>
+        <span>Инструкция по станку</span><span>PDF</span></div>
+      <div class="auth-sample-answer">При перегреве шпинделя остановите оборудование и сообщите мастеру.</div>
+      <div class="auth-sample-source"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-check"></use></svg> Инструкция · стр. 1</div>
+    </div>
+    <div class="aside-bottom"><span>Пример работы</span><h2>Сначала документ.<br>Потом ответ.</h2><p>Вы видите исходный фрагмент и можете его проверить.</p></div>
+  </aside>
+</div>
+
+<div id="workspace" class="app-shell" hidden>
+  <aside class="sidebar">
+    <div class="side-brand"><img class="brand-mark" src="/assets/brand-mark.svg" alt="" width="40" height="40"><div><strong>Цех.Знания</strong><small>Поиск по документам</small></div></div>
+    <div class="side-section-title">Разделы</div>
+    <nav class="nav" aria-label="Разделы">
+      <button class="nav-item active" type="button" data-page="home"><span class="nav-glyph"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-house"></use></svg></span><span>Главная</span></button>
+      <button class="nav-item" type="button" data-page="documents"><span class="nav-glyph"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-files"></use></svg></span><span>Документы</span></button>
+      <button class="nav-item" type="button" data-page="assistant"><span class="nav-glyph"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-message-circle"></use></svg></span><span>Вопросы по файлам</span></button>
+      <button class="nav-item" type="button" data-page="part" disabled title="Перенос анализа партий в PostgreSQL ещё не завершён"><span class="nav-glyph"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-file-check-2"></use></svg></span><span>Детали и партии</span></button>
+      <button class="nav-item" id="engineering-navigation" type="button" data-page="engineering" hidden><span class="nav-glyph"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-files"></use></svg></span><span>Инженерный корпус</span></button>
+      <button class="nav-item" id="finance-navigation" type="button" data-page="metrics" hidden><span class="nav-glyph"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-chart-no-axes-column"></use></svg></span><span>Затраты</span></button>
+    </nav>
+    <div class="side-bottom">
+      <div class="local-label"><span class="dot"></span>На этом компьютере <span class="local-label-code">· ДЕМО</span></div>
+      <div class="user-chip"><span id="avatar" class="avatar">Т</span><div><strong id="profile-role">Технолог цеха</strong><small>Keycloak · проверенные полномочия</small></div></div>
+      <button id="switch-demo" type="button" class="switch-role">Выйти из системы <span><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-arrow-up-right"></use></svg></span></button>
+    </div>
+  </aside>
+  <div class="app-body">
+    <header class="topbar"><div class="crumb">Учебная база <span aria-hidden="true">/</span><strong id="page-label">Главная</strong></div><div class="top-status"><span class="top-status-live"></span> Данные остаются на ПК</div></header>
+    <main class="main-content">
+      <section id="page-home" class="page">
+        <div class="page-lead"><div class="overline">УЧЕБНЫЕ ПРИМЕРЫ</div><h1>Что хотите проверить?</h1><p>Выберите задачу. Демонстрационные документы с проверкой полномочий через Keycloak.</p></div>
+        <div class="welcome-info"><div><strong>Доступные функции</strong><p>Поиск по архиву, загрузка PDF и Word, ответы с источниками, учебная проверка партий.</p></div><div class="pending-label">ОБРАБОТКА НА ЭТОМ ПК</div></div>
+        <div class="tiles">
+          <button class="task-tile" type="button" data-action="search-pump"><span class="tile-icon"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-search"></use></svg></span><span class="tile-number">ДОКУМЕНТЫ</span><strong>Документы по насосу</strong><span class="tile-desc">Найти чертёж корпуса и инструкцию по обслуживанию.</span><span class="tile-link">Найти документы <b><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-arrow-up-right"></use></svg></b></span></button>
+          <button class="task-tile" type="button" data-action="search-heat"><span class="tile-icon"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-wrench"></use></svg></span><span class="tile-number">ИНСТРУКЦИИ</span><strong>Инструкция при перегреве</strong><span class="tile-desc">Найти учебную инструкцию и открыть её текст.</span><span class="tile-link">Найти инструкцию <b><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-arrow-up-right"></use></svg></b></span></button>
+          <button class="task-tile" type="button" data-action="assistant"><span class="tile-icon"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-brain-circuit"></use></svg></span><span class="tile-number">ВОПРОСЫ</span><strong>Задать вопрос по документу</strong><span class="tile-desc">Загрузить файл и получить ответ с указанием страницы.</span><span class="tile-link">Задать вопрос <b><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-arrow-up-right"></use></svg></b></span></button>
+          <button class="task-tile" type="button" data-action="part" disabled title="Перенос применимости деталей ещё не завершён"><span class="tile-icon"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-file-check-2"></use></svg></span><span class="tile-number">ДЕТАЛИ</span><strong>Сопоставить деталь и партию</strong><span class="tile-desc">Сравнить две учебные партии и редакции чертежа.</span><span class="tile-link">Проверить пример <b><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-arrow-up-right"></use></svg></b></span></button>
+          <button class="task-tile" type="button" id="finance-tile" data-action="metrics" hidden><span class="tile-icon"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-chart-no-axes-column"></use></svg></span><span class="tile-number">ЗАТРАТЫ</span><strong>Сколько стоит заказ?</strong><span class="tile-desc">Посмотреть расчёт отклонения по учебному заказу.</span><span class="tile-link">Открыть расчёт <b><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-arrow-up-right"></use></svg></b></span></button>
+        </div>
+        <div class="explain-row"><div><span class="explain-symbol">i</span></div><div><strong>Если документ не найден</strong><p>Показаны только документы выбранной роли. При отсутствии подтверждений система сообщает об этом. Результаты проверки деталей относятся только к учебной базе.</p></div></div>
+      </section>
+
+      <section id="page-documents" class="page" hidden>
+        <div class="page-lead"><div class="overline">АРХИВ</div><h1>Поиск документов</h1><p>Введите название, обозначение детали или слово из документа.</p></div>
+        <form id="search-form" class="search-form"><span class="input-icon"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-search"></use></svg></span><input id="search-input" autocomplete="off" aria-label="Поисковый запрос" placeholder="Название или обозначение детали"><button type="submit" class="primary-button">Найти</button></form>
+        <div class="chips"><button type="button" data-query="корпус">Корпус насоса</button><button type="button" data-query="перегрев">Перегрев станка</button><button type="button" data-query="брак">Причины брака</button><button type="button" data-query="чертёж">Чертёж</button><button type="button" data-query="">Все документы</button></div>
+        <div class="list-head"><h2 id="docs-heading">Доступные документы</h2><span id="result-count">Загрузка...</span></div>
+        <div id="search-results" class="documents-grid" aria-live="polite"></div>
+        <p class="source-note">Здесь только вымышленные документы. Поиск зависит от выбранной роли.</p>
+      </section>
+
+      <section id="page-assistant" class="page" hidden>
+        <div class="page-lead assistant-head">
+          <div class="assistant-head-main">
+            <div class="head-overline"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-search"></use></svg> <span>ПОИСК С ОТВЕТОМ</span></div>
+            <h1>Вопрос по документам</h1>
+            <p>Введите вопрос. Ответ будет составлен из доступных документов с указанием страниц.</p>
+          </div>
+          <div class="assistant-head-actions">
+            <button id="ai-demo-run" type="button" class="hero-demo-button">
+              <svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-play"></use></svg> <span>Запустить учебный пример</span>
+            </button>
+            <span class="hero-primary-caption">Загрузка PDF, распознавание и ответ</span>
+          </div>
+        </div>
+        <div class="ai-critical"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-shield-alert"></use></svg> <strong>Не загружайте закрытые документы.</strong>
+          В демонстрации нет защищённого входа. Скан может распознаваться с ошибками — сверяйте числа с исходным PDF.</div>
+        <div class="ai-layout">
+          <div class="ai-column">
+            <article class="ai-panel model-card">
+              <div class="ai-panel-head"><div><span class="overline">ФОРМИРОВАНИЕ ОТВЕТА</span><h2>Модель на ПК</h2></div><span id="ai-status" class="ai-status" aria-live="polite">Проверка…</span></div>
+              <p>Ответ составляется локально из найденных фрагментов. Поиск и генерация могут ошибаться.</p>
+              <div class="ai-actions"><button type="button" id="ai-start" class="primary-button">Запустить</button>
+              <button type="button" id="ai-stop" class="secondary-button" disabled>Остановить</button></div>
+              <div id="ai-model-note" class="ai-hint" aria-live="polite">Проверяем состояние локальной модели…</div>
+            </article>
+            <article class="ai-panel upload-card">
+              <div class="side-panel-title"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-file-up"></use></svg> <div><span class="overline">ЗАГРУЗКА</span><h2>Свой документ</h2></div></div>
+              <p>После загрузки текст файла станет доступен для вопросов в выбранной роли. До 8 МБ.</p>
+              <label for="ai-file" class="ai-input-label">PDF, DOCX или TXT</label>
+              <input id="ai-file" disabled type="file" accept=".pdf,.docx,.txt,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+              <label for="ai-title" class="ai-input-label">Название документа</label>
+              <input id="ai-title" type="text" maxlength="200" placeholder="Например, инструкция по обработке детали">
+              <label for="ai-scope" class="ai-input-label">Раздел и права доступа</label>
+              <select id="ai-scope" aria-label="Раздел документа" disabled></select>
+              <button id="ai-upload" disabled title="Доступно после проверки прав на запись" class="secondary-button ai-upload-button" type="button">Добавить файл</button>
+              <button id="ai-try-sample" disabled title="Доступно после проверки прав на запись" class="secondary-button ai-upload-button" type="button">Загрузить учебный PDF</button>
+              <p class="ai-example-tip">В учебном PDF указан насос Н-125. Вопрос можно задать после загрузки.</p>
+              <div id="ai-upload-result" class="ai-hint" aria-live="polite"></div>
+            </article>
+          </div>
+          <article class="ai-panel ai-chat">
+            <div class="chat-panel-head"><div class="chat-panel-icon"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-message-circle"></use></svg></div>
+               <div><span class="overline">ВОПРОС</span><h2>Что нужно узнать?</h2></div></div>
+            <p class="chat-helper">Спросите о содержимом файла. Для сканов проверяйте числа и обозначения по оригиналу.</p>
+            <form id="ai-question-form">
+              <label for="ai-question" class="ai-input-label">Вопрос <span class="ai-keyboard-hint">Enter — отправить · Shift+Enter — новая строка</span></label>
+              <textarea id="ai-question" rows="4" maxlength="600" placeholder="Например, что делать при перегреве шпинделя?"></textarea>
+              <div class="ai-example-row">
+                <button class="ai-example" type="button" data-ai-query="Что делать при перегреве шпинделя станка?">Перегрев станка</button>
+                <button class="ai-example" type="button" data-ai-query="Какой материал указан для корпуса насоса?">Материал корпуса</button>
+                <button class="ai-example" type="button" data-ai-query="Как проверить актуальность чертежа?">Чертёж и редакция</button>
+              </div>
+              <button id="ai-ask" class="primary-button ai-ask-button" type="submit">
+               <svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-arrow-up"></use></svg> <span>Получить ответ</span></button>
+            </form>
+            <div id="ai-answer" class="ai-answer" aria-live="polite" hidden></div>
+            <div id="ai-sources" class="ai-sources" hidden></div>
+            <p class="ai-disclaimer">Не используйте ответ как разрешение на производство или эксплуатацию оборудования. Проверяйте исходный документ.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="page-part" class="page" hidden>
+        <div class="page-lead"><div class="overline">УЧЕБНАЯ ПРОВЕРКА</div><h1>Редакция чертежа и партия</h1><p>Выберите партию корпуса насоса Н-100. Система покажет, какие документы доступны для сравнения.</p></div>
+        <div class="context-box"><div class="context-icon"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons.svg#icon-file-check-2"></use></svg></div><div><strong>Корпус насоса Н-100</strong><p>Обозначение АБВГ.712345.004-02 придумано для примера. Сведения не относятся к реальному изделию.</p></div></div>
+        <form id="part-form" class="part-form">
+          <label for="part-code">Обозначение детали</label>
+           <input id="part-code" type="text" value="АБВГ.712345.004-02" maxlength="120"
+                  spellcheck="false" autocomplete="off" aria-describedby="part-code-hint">
+           <p id="part-code-hint" class="part-code-hint">В учебном архиве пока есть один комплект документов на эту деталь.</p>
+          <label for="lot-id">Выберите партию</label>
+          <div class="part-controls">
+            <select id="lot-id"><option value="LOT-2025-12">Партия декабря 2025 года</option><option value="LOT-2026-10">Партия октября 2026 года</option></select>
+            <button type="submit" class="primary-button">Проверить партию</button>
+          </div>
+        </form>
+        <div id="part-result" aria-live="polite"></div>
+        <div class="context-tip"><strong>Что означает результат?</strong><p>Сопоставляются редакция, по которой выпущена учебная партия, и найденные извещения. Если подтверждений недостаточно, требуется проверка конструктором.</p></div>
+      </section>
+
+      <section id="page-engineering" class="page" hidden>
+        <div class="page-lead">
+          <div class="overline">P12 · 3D-ГРАНИ И АУДИТ</div>
+          <h1>Инженерный корпус</h1>
+          <p>Поиск подтверждённых связей между BOM, чертежом и STEP-моделью. Система не подтверждает действующую редакцию и не разрешает изготовление.</p>
+        </div>
+        <div id="engineering-summary" class="engineering-summary" aria-live="polite"></div>
+        <div id="p8-summary" class="p8-summary" aria-live="polite"></div>
+        <article class="ai-panel engineering-panel">
+          <span class="overline">ПОИСК ПО СПЕЦИФИКАЦИИ</span>
+          <form id="engineering-form" class="engineering-form">
+            <label for="engineering-query" class="ai-input-label">Название или обозначение детали</label>
+            <div class="engineering-input-row">
+              <input id="engineering-query" maxlength="300" autocomplete="off" spellcheck="false"
+                placeholder="Например, какой материал у focuser_drawtube?" value="focuser_drawtube">
+              <button class="primary-button" type="submit">Проверить источники</button>
+            </div>
+          </form>
+          <div class="engineering-examples" aria-label="Примеры запросов">
+            <button type="button" class="secondary-button" data-engineering-example="focuser_drawtube">Фокусировочная трубка</button>
+            <button type="button" class="secondary-button" data-engineering-example="mirror_cell_base">Основание зеркала</button>
+            <button type="button" class="secondary-button" data-engineering-example="lower_square_tube">Стальная труба</button>
+            <button type="button" class="secondary-button" data-engineering-example="040M07C01.0P026D">Случай без подтверждения</button>
+          </div>
+          <div id="engineering-result" aria-live="polite"></div>
+          <section class="kit-report private-kit" aria-labelledby="private-kit-heading">
+            <div class="kit-report-header">
+              <div>
+                <span class="overline">Новый комплект · ваши файлы</span>
+                <h2 id="private-kit-heading">Проверить свои PDF, STEP и спецификацию</h2>
+                <p class="source-note">Загрузите три файла одного изделия. Анализ локальный и не сохраняет исходники автоматически. Для хранения трёх оригиналов, заключения и истории редакций используйте кнопку «Сохранить редакцию» с соответствующими правами.</p>
+              </div>
+            </div>
+            <form id="private-kit-form" class="private-kit-form">
+              <div class="private-kit-inputs">
+                <label for="private-kit-bom">Спецификация (CSV, до 2 МБ)
+                  <input id="private-kit-bom" type="file" accept=".csv,text/csv" required>
+                </label>
+                <label for="private-kit-pdf">Чертёж (PDF, до 8 МБ)
+                  <input id="private-kit-pdf" type="file" accept=".pdf,application/pdf" required>
+                </label>
+                <label for="private-kit-step">3D-модель (STEP, до 8 МБ)
+                  <input id="private-kit-step" type="file" accept=".step,.stp" required>
+                </label>
+              </div>
+              <label for="private-kit-part">Название детали из спецификации (необязательно, по умолчанию — имя STEP-файла)</label>
+              <input id="private-kit-part" type="text" maxlength="150" placeholder="focuser_drawtube">
+              <label for="private-kit-version-target">Сохранение: новый комплект или следующая редакция</label>
+              <select id="private-kit-version-target" aria-label="Целевой комплект" disabled>
+                <option value="">Новый комплект</option>
+              </select>
+              <p id="private-kit-target-hint" class="source-note" aria-live="polite">После анализа система найдёт существующий комплект или предложит создать новый.</p>
+              <div class="source-note" id="private-kit-save-state" aria-live="polite">
+                Сначала проверьте файлы. Хранение доступно только роли с правом записи.
+              </div>
+              <div class="kit-report-buttons">
+                <button id="private-kit-analyze" class="primary-button" type="submit">Проверить комплект</button>
+                <button id="private-kit-export" class="secondary-button" type="button" disabled>Скачать заключение</button>
+                <button id="private-kit-save" class="secondary-button" type="button" disabled>Сохранить редакцию в PostgreSQL</button>
+              </div>
+            </form>
+            <div class="ai-panel" aria-labelledby="saved-kit-title">
+              <h3 id="saved-kit-title">Сохранённые комплекты и редакции</h3>
+              <div id="saved-kits-list" aria-live="polite">Загрузка списка…</div>
+            </div>
+            <div id="private-kit-result" class="kit-report-content" aria-live="polite">Выберите три файла, затем нажмите «Проверить комплект».</div>
+          </section>
+          <section class="kit-report" aria-labelledby="kit-report-heading">
+            <div class="kit-report-header">
+              <div>
+                <span class="overline">Единый результат · PDF + STEP + BOM</span>
+                <h2 id="kit-report-heading">Заключение по комплекту</h2>
+                <p class="source-note">Поиск связанного комплекта, размеров и CAD-кандидатов. Не является разрешением на производство.</p>
+              </div>
+              <div class="kit-report-buttons">
+                <button id="kit-report-generate" class="primary-button" type="button">Сформировать заключение</button>
+                <button id="kit-report-save" class="secondary-button" type="button" disabled>Сохранить отчёт</button>
+              </div>
+            </div>
+            <div id="kit-report-content" class="kit-report-content" aria-live="polite">Выберите деталь и сформируйте заключение по её исходным файлам.</div>
+          </section>
+        </article>
+        <article class="ai-panel p8-panel p11-panel" id="p11-review-panel">
+          <div class="p8-panel-head">
+            <div>
+              <span class="overline">P11 · ВИЗУАЛЬНАЯ ПРОВЕРКА · PDF + STEP</span>
+              <h2>Проверка обозначения и запись замечания инженера</h2>
+            </div>
+            <span class="p8-state-tag">Не является утверждением документации</span>
+          </div>
+          <p>Фрагмент оригинального чертежа показывается с подсветкой выбранной в P10 надписи. Сравните его с данными аналитической поверхности STEP. Результат проверки можно записать в локальный журнал с привязкой к контрольным суммам обоих файлов.</p>
+          <div class="p12-evidence-grid">
+            <div id="p11-preview-area" class="p11-preview-area" aria-live="polite">
+              <p class="source-note">Выберите в P10 радиус или угол и поверхность CAD.</p>
+            </div>
+            <section class="p12-cad-preview" aria-label="Визуализация реальной поверхности STEP">
+              <div class="p12-cad-head">
+                <div>
+                  <span class="overline">P12 · BREP / OpenCascade / VTK</span>
+                  <h3>Та же деталь в STEP, выбранные грани оранжевым</h3>
+                </div>
+                <div class="p9-field">
+                  <label for="p12-camera">Вид на модель</label>
+                  <select id="p12-camera">
+                    <option value="iso">Изометрия</option>
+                    <option value="front">Спереди</option>
+                    <option value="side">Сбоку</option>
+                    <option value="top">Сверху</option>
+                  </select>
+                </div>
+              </div>
+              <div id="p12-cad-image" aria-live="polite">
+                <p class="source-note">Выберите грань CAD в блоке P10.</p>
+              </div>
+              <div id="p12-cad-proof" aria-live="polite"></div>
+              <p class="source-note">Цвет выделяет реальные грани BREP. Геометрическая связь с размерной выноской PDF автоматически не устанавливается.</p>
+            </section>
+          </div>
+          <div id="p11-current-pair" aria-live="polite"></div>
+          <section id="p13-registration-panel" class="p13-panel" aria-label="Геометрия стрелки на оригинальном чертеже и численные кандидаты CAD">
+            <div class="p8-panel-head">
+              <div>
+                <span class="overline">P13 · РЕАЛЬНЫЕ ВЕКТОРЫ PDF + CAD-КАНДИДАТЫ</span>
+                <h3>На какую линию ведёт стрелка чертежа?</h3>
+              </div>
+              <span class="p8-state-tag">Связь PDF → 3D ещё не зарегистрирована</span>
+            </div>
+            <p>Выделяю наконечник и линию-выноску или дугу угла непосредственно из графики исходного PDF. Отдельно проверяю численно совместимые поверхности STEP, не выдавая совпадение за доказанную геометрическую связь.</p>
+            <div class="p13-evidence-grid">
+              <div class="p13-vector-column">
+                <h4>Подтверждённая графика PDF</h4>
+                <div id="p13-vector-preview" class="p13-vector-preview" aria-live="polite">
+                  <p class="source-note">Выберите размерную надпись P10.</p>
+                </div>
+                <div id="p13-vector-proof" class="p13-vector-proof" aria-live="polite"></div>
+              </div>
+              <div class="p13-match-column">
+                <h4>Численные кандидаты исходной STEP-модели</h4>
+                <div id="p13-match-summary" aria-live="polite">
+                  <p class="source-note">Соответствие PDF → STEP не определено.</p>
+                </div>
+                <div id="p13-candidates" class="p13-candidates" aria-live="polite"></div>
+              </div>
+            </div>
+            <p class="source-note p13-warning">Доказательство ограничено графическими объектами оригинального чертежа, числовыми параметрами исходной STEP и их контрольными суммами. Без пространственной регистрации проекции и утверждённой ревизии нельзя заключить, что указана именно эта CAD-поверхность или можно запускать производство.</p>
+          </section>
+          <form id="p11-review-form" class="p11-review-form">
+            <div class="p9-field">
+              <label for="p11-decision">Вывод по предполагаемой связи надписи и поверхности</label>
+              <select id="p11-decision" required>
+                <option value="NEEDS_MORE_EVIDENCE">Нужна дополнительная проверка</option>
+                <option value="PLAUSIBLE_MAPPING">Визуально похоже на соответствие</option>
+                <option value="NOT_SAME_FEATURE">Выбранная поверхность не соответствует обозначению</option>
+              </select>
+            </div>
+            <div class="p9-field">
+              <label for="p11-note">Обоснование проверяющего (12–500 символов)</label>
+              <textarea id="p11-note" rows="3" maxlength="500" minlength="12" required placeholder="Что видно в штампе или на чертеже? Почему предположено соответствие именно этой поверхности?"></textarea>
+            </div>
+            <button type="submit" class="primary-button" id="p11-save" disabled title="Запись инженерных заключений в новый аудит пока не подключена">Зафиксировать проверку в деможурнале</button>
+            <p class="source-note">Запись доступна только учебной роли «Инженер-конструктор». Это не квалифицированная электронная подпись, не утверждение редакции и не разрешение на изготовление.</p>
+          </form>
+          <div id="p11-save-result" aria-live="polite"></div>
+          <div class="p11-history-block">
+            <h3>История замечаний по выбранной детали</h3>
+            <div id="p11-history" aria-live="polite"></div>
+          </div>
+          <section class="p12-witness" aria-label="Независимая проверка целостности журнала">
+            <span class="overline">P12 · ПОДПИСАННЫЙ ВНЕШНИЙ ЯКОРЬ</span>
+            <h3>Проверяемость журнала вне этой программы</h3>
+            <p>Локальная SHA-256-цепочка не выявляет удаление конца журнала. Независимо подписанный контрольный снимок помогает обнаружить такое удаление и подмену ранее сохранённых событий. Подключение необязательно; без него внешняя проверка не заявляется.</p>
+            <div id="p12-witness-status" aria-live="polite"></div>
+          </section>
+        </article>
+        <article class="ai-panel p8-panel p10-panel" id="p10-feature-panel">
+          <div class="p8-panel-head">
+            <div>
+              <span class="overline">P10 · АНАЛИТИЧЕСКИЕ ПОВЕРХНОСТИ</span>
+              <h2>Радиус цилиндра и угол плоскости STEP</h2>
+            </div>
+            <span class="p8-state-tag">Геометрическая гипотеза, не приёмка</span>
+          </div>
+          <p>Для выбранной выше детали читаются настоящие цилиндрические и плоские грани из OpenCascade. Выберите обозначение чертежа и соответствующую поверхность. Совпадение чисел не устанавливает, к какой грани фактически ведёт выноска PDF.</p>
+          <div id="p10-feature-summary" aria-live="polite"></div>
+          <form id="p10-compare-form">
+            <div class="p10-controls">
+              <div class="p9-field">
+                <label for="p10-callout">Обозначение из PDF</label>
+                <select id="p10-callout"></select>
+              </div>
+              <div class="p9-field">
+                <label for="p10-surface">Поверхность из STEP</label>
+                <select id="p10-surface"></select>
+              </div>
+              <div class="p9-field">
+                <label for="p10-reference-axis">Ось для угла плоскости</label>
+                <select id="p10-reference-axis">
+                  <option value="x">X</option>
+                  <option value="y">Y</option>
+                  <option value="z">Z</option>
+                </select>
+              </div>
+            </div>
+            <button class="primary-button" type="submit">Сопоставить геометрию</button>
+          </form>
+          <div id="p10-feature-result" aria-live="polite"></div>
+          <p class="source-note">Угол рассчитывается между выбранной осью и математической плоскостью CAD. Проверка не учитывает GD&T, допуск, идентичность выноски и утверждённость редакции.</p>
+        </article>
+        <article class="ai-panel p8-panel p10-panel" id="p10-revision-panel">
+          <div class="p8-panel-head">
+            <div>
+              <span class="overline">P10 · PLM/1С · ИСТОЧНИК РЕДАКЦИЙ</span>
+              <h2>Проверка происхождения учётной редакции</h2>
+            </div>
+            <span class="p8-state-tag">Только чтение</span>
+          </div>
+          <p>Поддерживается проверка структуры и криптографической целостности административно предоставленного снимка PLM/1С. Без подключённого источника истины утверждение редакции и производственная пригодность остаются неподтверждёнными.</p>
+          <div id="p10-revision-result" aria-live="polite"></div>
+        </article>
+        <article class="ai-panel p8-panel p9-panel" id="p9-part-panel">
+          <div class="p8-panel-head">
+            <div>
+              <span class="overline">P9 · ЧЕРТЁЖ И CAD · ЧИСЛОВАЯ ГИПОТЕЗА</span>
+              <h2>Сопоставление размерного обозначения и габарита CAD</h2>
+            </div>
+            <span class="p8-state-tag">Без производственного допуска</span>
+          </div>
+          <p>Выберите надпись на исходном чертеже и предположите, какой оси габаритного параллелепипеда CAD она соответствует. Система сравнит <strong>только числа</strong>; она не устанавливает, что измерена одна и та же конструктивная особенность.</p>
+          <div id="p9-source-info" aria-live="polite"></div>
+          <form id="p9-comparison-form">
+            <div class="p9-input-grid">
+              <div class="p9-field">
+                <label for="p9-annotation">Число, извлечённое из PDF</label>
+                <select id="p9-annotation" aria-label="Размерное обозначение"></select>
+              </div>
+              <div class="p9-field">
+                <label for="p9-axis">Предполагаемый габарит CAD</label>
+                <select id="p9-axis">
+                  <option value="x">Ось X</option>
+                  <option value="y" selected>Ось Y</option>
+                  <option value="z">Ось Z</option>
+                </select>
+              </div>
+              <div class="p9-field">
+                <label for="p9-window">Окно числового сравнения</label>
+                <select id="p9-window">
+                  <option value="0">0 мм (строгое равенство)</option>
+                  <option value="0.01">±0,01 мм</option>
+                  <option value="0.02" selected>±0,02 мм</option>
+                  <option value="0.05">±0,05 мм</option>
+                  <option value="0.10">±0,10 мм</option>
+                  <option value="0.20">±0,20 мм</option>
+                </select>
+              </div>
+            </div>
+            <button type="submit" class="primary-button">Сравнить выбранные числа</button>
+          </form>
+          <div id="p9-comparison-result" aria-live="polite"></div>
+          <p class="source-note">Выбранное окно сравнения не является конструкторским допуском. Даже точное числовое совпадение не означает соответствия чертежу или утверждённой редакции.</p>
+        </article>
+        <article class="ai-panel p8-panel" id="p8-part-panel">
+          <div class="p8-panel-head">
+            <div><span class="overline">P8 · КОНСТРУКТОРСКАЯ ПРОВЕРКА</span><h2>Штамп чертежа и геометрия STEP</h2></div>
+            <span class="p8-state-tag">Не является производственным допуском</span>
+          </div>
+          <p>Для выбранной выше детали проверяются фактические записи чертежа и топология CAD-модели. Совпадение с актуальной утверждённой редакцией требует данных PLM.</p>
+          <div id="p8-part-result" aria-live="polite"></div>
+        </article>
+        <article class="ai-panel p8-panel">
+          <div class="p8-panel-head">
+            <div><span class="overline">ПРОВЕРКА ПЕРВОИСТОЧНИКА</span><h2>Чертёж из реального архива</h2></div>
+          </div>
+          <label class="ai-input-label" for="p8-source-select">Документ PDF или STEP</label>
+          <div class="p8-source-row">
+            <select id="p8-source-select" aria-label="Инженерный документ"></select>
+            <button type="button" class="primary-button" id="p8-source-check">Исследовать</button>
+          </div>
+          <button type="button" class="secondary-button" id="p8-source-ocr" hidden>OCR области штампа — только подсказка для сверки</button>
+          <div id="p8-source-result" aria-live="polite"></div>
+          <p class="source-note">Данные считываются из исходного файла. Поля штампа не считаются электронной подписью или отметкой о допуске.</p>
+        </article>
+        <article class="ai-panel p8-panel">
+          <div class="p8-panel-head">
+            <div><span class="overline">СОПОСТАВЛЕНИЕ ДВУХ РЕЛИЗОВ</span><h2>BCN3D: Sigmax и R19</h2></div>
+          </div>
+          <p>Система сравнит обозначения и поля версии двух опубликованных чертежей верхней рамы, но не будет выдавать историю Git за извещение ЕСКД.</p>
+          <button type="button" class="secondary-button" id="p8-compare-button">Сравнить чертежи</button>
+          <div id="p8-compare-result" aria-live="polite"></div>
+        </article>
+        <article class="ai-panel engineering-reference">
+          <span class="overline">ИСТОРИЧЕСКИЙ ПРИМЕР · ОТДЕЛЬНЫЙ ИСТОЧНИК</span>
+          <h2>Извещение БВАИ.107-2012</h2>
+          <p>Изменение к СТО ЦКТИ 318.03-2009 хранится как самостоятельная справочная ссылка; оно не относится к деталям ArcBlue, BCN3D или Passport.</p>
+          <div id="engineering-historical"></div>
+          <button type="button" class="secondary-button" id="p8-notice-button">Проверить исходный PDF извещения</button>
+          <div id="p8-notice-result" aria-live="polite"></div>
+        </article>
+        <p class="ai-disclaimer">Импортированы открытые источники. Точное совпадение имени не доказывает редакцию, пригодность модели, соблюдение ЕСКД или применимость к партии.</p>
+      </section>
+
+      <section id="page-metrics" class="page" hidden>
+        <div class="page-lead"><div class="overline">РАСЧЁТ</div><h1>Затраты по заказам</h1><p>План и факт из учебной базы. Разница вычисляется по сохранённым суммам, а не языковой моделью.</p></div>
+        <div id="metric-results" aria-live="polite"></div>
+        <p class="source-note">Суммы вымышленные. Подключения к 1С нет.</p>
+      </section>
+    </main>
+    <footer class="app-footer">Цех.Знания <span>Учебный архив · Не для производственных решений</span></footer>
+  </div>
+</div>
+<dialog id="document-modal" class="document-modal" aria-labelledby="modal-title">
+  <div class="modal-top"><span id="modal-kind" class="overline">ДОКУМЕНТ</span><button id="close-modal" class="icon-close" type="button" aria-label="Закрыть">×</button></div>
+  <h2 id="modal-title"></h2>
+  <p id="modal-meta" class="modal-meta"></p>
+  <div id="modal-text" class="document-text"></div>
+  <div class="modal-actions">
+    <a id="modal-download" class="secondary-button modal-download" hidden>Скачать оригинал</a>
+    <button id="modal-delete" class="modal-delete" type="button" hidden>Удалить файл</button>
+    <button id="close-modal-bottom" class="secondary-button" type="button">Закрыть документ</button>
+  </div>
+</dialog>
+<dialog id="scan-preview-modal" class="scan-preview-modal" aria-labelledby="scan-preview-title">
+  <div class="scan-preview-head">
+    <div><span class="overline">СТРАНИЦА PDF</span><h2 id="scan-preview-title">Оригинальная страница</h2></div>
+    <button id="scan-preview-close" class="icon-close" type="button" aria-label="Закрыть предпросмотр">×</button>
+  </div>
+  <p class="scan-preview-note">Сверьте обозначения, размеры и числа с изображением: распознавание текста может ошибаться.</p>
+  <img id="scan-preview-image" alt="Оригинальная страница документа для сверки с распознанным текстом">
+  <div id="scan-preview-error" role="status" class="ai-hint" hidden></div>
+</dialog>
+<script src="/app.js"></script>
+</body></html>

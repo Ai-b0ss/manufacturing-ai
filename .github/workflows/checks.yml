@@ -1,0 +1,14 @@
+name: Basic checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.13'
+      - name: Synthetic HTTP, access and revision tests
+        run: python -m unittest test_app test_engineering_retrieval test_engineering_evidence

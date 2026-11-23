@@ -1,0 +1,2 @@
+# Markdown hard-linebreaks in verbatim v0.6 reference are intentional.
+docs/reference/*.md whitespace=-blank-at-eol
