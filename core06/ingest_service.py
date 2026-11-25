@@ -9,11 +9,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from io import BytesIO
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 import uuid
 import zipfile
@@ -26,9 +28,23 @@ MEDIA = {
     ".txt": "text/plain",
 }
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_EXTRACT_PYTHON = Path(
-    r"C:\Users\user\AppData\Local\Programs\Python\Python313\python.exe"
-)
+
+
+def _default_extract_python() -> Path:
+    if importlib.util.find_spec("fitz") is not None:
+        return Path(sys.executable)
+    if sys.base_prefix != sys.prefix:
+        candidate = (
+            Path(sys.base_prefix) / "python.exe"
+            if os.name == "nt"
+            else Path(sys.base_prefix) / "bin" / "python3"
+        )
+        if candidate.is_file():
+            return candidate
+    return Path(sys.executable)
+
+
+DEFAULT_EXTRACT_PYTHON = _default_extract_python()
 
 
 class UploadInputError(ValueError):
@@ -96,7 +112,7 @@ def _hidden_startupinfo():
 
 
 def _extract_worker(source: Path) -> dict:
-    executable = Path(os.environ.get("FACTORY_EXTRACTION_PYTHON", str(DEFAULT_EXTRACT_PYTHON)))
+    executable = Path(os.environ.get("FACTORY_EXTRACTION_PYTHON") or str(DEFAULT_EXTRACT_PYTHON))
     if not executable.is_file():
         raise UploadInputError("EXTRACTION_RUNTIME_MISSING")
     try:

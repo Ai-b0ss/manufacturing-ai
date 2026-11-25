@@ -25,8 +25,7 @@ import zipfile
 HERE = Path(__file__).resolve().parent
 DEFAULT_INDEX = HERE / "data" / "engineering_corpus.sqlite3"
 DEFAULT_CORPUS = HERE.parent / "ManufacturingAI-Design-Preview" / ".preview" / "public_engineering_corpus_20261117"
-DEFAULT_PYTHON = Path(os.environ.get("FACTORY_AI_PARSER_PY",
-    r"C:\Users\user\AppData\Local\Programs\Python\Python313\python.exe"))
+DEFAULT_PYTHON = Path(os.environ.get("FACTORY_AI_PARSER_PY") or sys.executable)
 SUPPORTED = {".pdf": "PDF", ".csv": "CSV", ".xlsx": "XLSX",
              ".step": "STEP", ".stp": "STEP", ".png": "IMAGE",
              ".txt": "TEXT", ".md": "TEXT"}

@@ -239,6 +239,10 @@ button[disabled]{opacity:.45;cursor:not-allowed;transform:none;box-shadow:none}
 .role-text small{font-size:13px;color:#606C82}
 .role-arrow{color:#5C70AA}
 .role-card .role-arrow .ui-icon{display:block}
+.technical-login{color:#46536B;font-size:13px}
+.technical-login summary{color:#24334C;font-weight:600;padding:4px 0}
+.technical-login label{display:block;font-size:13px;font-weight:600;color:#24334C;margin-top:4px}
+.technical-login input{color:#141A28;background:#fff;border:1px solid #B9C3D6}
 .auth-aside .aside-bottom h2{color:#fff;font-size:clamp(32px,3.4vw,48px);font-weight:700;line-height:1.14}
 .auth-aside .aside-bottom p{color:#CAD6E8;font-size:15px}
 .auth-aside .aside-top{color:#B8C8E5;font-size:12px}

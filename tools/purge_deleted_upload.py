@@ -137,7 +137,7 @@ def purge_one(doc_id: str, execute=False, db_factory=database_session, client=No
                     raise PurgeBlocked("QDRANT_REINTRODUCED_POINTS")
                 return PurgeResult(doc_id,True,True,result.chunks,0,())
     finally:
-        if owns_client and client is not None:
+        if owns_client and client is not None and hasattr(client, "close"):
             client.close()
 
 

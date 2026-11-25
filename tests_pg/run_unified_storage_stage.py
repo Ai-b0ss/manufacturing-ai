@@ -166,10 +166,12 @@ def _run_stage(vector_port=None, stage_tmp=None):
             "NO_PROXY":"localhost,127.0.0.1",
             "no_proxy":"localhost,127.0.0.1",
         })
-        live_data = ROOT.parent / "ManufacturingAI-Unified-V06-P3-P13" / "data"
+        _live_override = os.environ.get("FACTORY_V06_LIVE_DATA_DIR", "").strip()
+        live_data = Path(_live_override) if _live_override else (ROOT.parent / "ManufacturingAI-Unified-V06-P3-P13" / "data")
         own_pid = ROOT / "data" / "model_process.json"
         if (
             "FACTORY_AI_PID_FILE" not in env
+            and "FACTORY_AI_PORT" not in env
             and not own_pid.is_file()
             and (live_data / "model_api_key.txt").is_file()
             and (live_data / "model_process.json").is_file()

@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import importlib.util
 import json
 import os
 import pathlib
@@ -23,15 +24,44 @@ import time
 import urllib.error
 import urllib.request
 
+def _ai_port()->int:
+    raw=os.getenv("FACTORY_AI_PORT","19086").strip()
+    if not raw.isascii() or not raw.isdigit() or not 1024<=int(raw)<=65535:
+        raise RuntimeError("INVALID_FACTORY_AI_PORT")
+    return int(raw)
+
+
+def _ai_ngl()->str:
+    raw=os.getenv("FACTORY_AI_NGL","99").strip()
+    if not raw.isascii() or not raw.isdigit() or not 0<=int(raw)<=999:
+        raise RuntimeError("INVALID_FACTORY_AI_NGL")
+    return raw
+
+
+def _default_parser_python()->pathlib.Path:
+    override=os.getenv("FACTORY_AI_PARSER_PY","").strip()
+    if override:
+        return pathlib.Path(override)
+    if importlib.util.find_spec("fitz") is not None:
+        return pathlib.Path(sys.executable)
+    if sys.base_prefix!=sys.prefix:
+        candidate=(pathlib.Path(sys.base_prefix)/"python.exe"
+                   if os.name=="nt"
+                   else pathlib.Path(sys.base_prefix)/"bin"/"python3")
+        if candidate.is_file():
+            return candidate
+    return pathlib.Path(sys.executable)
+
+
 ROOT=pathlib.Path(__file__).resolve().parent
 DATA=ROOT/"data"
-PORT=19086
+PORT=_ai_port()
 LLM_URL=f"http://127.0.0.1:{PORT}"
 MODEL=pathlib.Path(os.getenv("FACTORY_AI_MODEL",r"K:\ManufacturingAI-ModelBench\models\MiniCPM5-2B-Q4_K_M.gguf"))
 SERVER=pathlib.Path(os.getenv("FACTORY_AI_SERVER",r"K:\ManufacturingAI-ModelBench\runtime\cuda\llama-server.exe"))
-PARSER_PY=pathlib.Path(os.getenv("FACTORY_AI_PARSER_PY",r"C:\Users\user\AppData\Local\Programs\Python\Python313\python.exe"))
+PARSER_PY=_default_parser_python()
 KEY_FILE=pathlib.Path(os.getenv("FACTORY_AI_KEY_FILE",str(DATA/"model_api_key.txt")))
-MODEL_LOG=DATA/"model_runtime.log"
+MODEL_LOG=pathlib.Path(os.getenv("FACTORY_AI_LOG_FILE",str(DATA/"model_runtime.log")))
 PID_FILE=pathlib.Path(os.getenv("FACTORY_AI_PID_FILE",str(DATA/"model_process.json")))
 MAX_FILE=5*1024*1024
 MAX_ASK=600
@@ -297,8 +327,8 @@ def _tokens(question):
 
 _IDENTIFIER_PATTERN=re.compile(
     r"(?<!\w)(?=[A-Za-zА-Яа-яЁё0-9.\-]*\d)"
-    r"(?:[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё0-9.\-]{3,}|"
-    r"(?=\d{1,4}[A-Za-zА-Яа-яЁё])\d[A-Za-zА-Яа-яЁё0-9.\-]{4,})",
+    r"(?:[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё0-9.\-]{2,}[A-Za-zА-Яа-яЁё0-9]|"
+    r"(?=\d{1,4}[A-Za-zА-Яа-яЁё])\d[A-Za-zА-Яа-яЁё0-9.\-]{3,}[A-Za-zА-Яа-яЁё0-9])(?!\w)",
     flags=re.UNICODE)
 _IDENTIFIER_CONFUSABLE=str.maketrans({
     "A":"А","B":"В","C":"С","E":"Е","H":"Н","K":"К",
@@ -412,7 +442,7 @@ def sanitize_source(text):
 
 def _key():
     if not KEY_FILE.exists():
-        DATA.mkdir(parents=True,exist_ok=True)
+        KEY_FILE.parent.mkdir(parents=True,exist_ok=True)
         KEY_FILE.write_text(secrets.token_urlsafe(44),encoding="utf8")
         try:os.chmod(KEY_FILE,0o600)
         except OSError:pass
@@ -460,7 +490,7 @@ def _health():
 def status():
     global _state_error
     installed=MODEL.is_file() and SERVER.is_file()
-    if not installed:return {"status":"missing","message":"Не найдена модель или движок llama.cpp на K:."}
+    if not installed:return {"status":"missing","message":"Локальная модель или llama.cpp не настроены (FACTORY_AI_MODEL / FACTORY_AI_SERVER). Поиск по документам работает без модели."}
     if _proc is not None and _proc.poll() is not None:
         _state_error=f"Процесс завершился с кодом {_proc.returncode}."
     if _proc is None and _port_occupied():
@@ -484,13 +514,14 @@ def start():
             return current
         if current["status"]=="conflict":raise ValueError(current["message"])
         if current["status"]=="missing":raise ValueError(current["message"])
-        if _port_occupied():raise ValueError("Порт 19086 занят.")
+        if _port_occupied():raise ValueError(f"Порт {PORT} занят.")
         _state_error=""
         key=_key()
-        DATA.mkdir(parents=True,exist_ok=True)
+        MODEL_LOG.parent.mkdir(parents=True,exist_ok=True)
+        PID_FILE.parent.mkdir(parents=True,exist_ok=True)
         params=[str(SERVER),"-m",str(MODEL),"--host","127.0.0.1","--port",str(PORT),
                 "-t","8","-c","3072","-b","128","-ub","64","--parallel","1",
-                "-ngl","99","--api-key-file",str(KEY_FILE),
+                "-ngl",_ai_ngl(),"--api-key-file",str(KEY_FILE),
                 "--cors-origins","http://127.0.0.1:19081","--reasoning","off"]
         try:
             with MODEL_LOG.open("ab") as f:

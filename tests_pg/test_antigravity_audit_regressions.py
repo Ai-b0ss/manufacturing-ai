@@ -759,6 +759,43 @@ class AntigravityUnitAndFaultTests(unittest.TestCase):
             importlib.reload(kit_mod)
             self.assertEqual(os.environ.get("FACTORY_P2_APP_ORIGIN"), "http://localhost:19136")
 
+    def test_19_staging_keycloak_and_ai_port_fail_closed_guards(self):
+        from p2_gateway import security as p2sec
+
+        with patch.dict(os.environ, {"FACTORY_P2_KEYCLOAK_PORT": "18180", "FACTORY_V06_UNIFIED_STAGING": "0"}, clear=False):
+            with self.assertRaisesRegex(RuntimeError, "KEYCLOAK_PORT_OVERRIDE_REQUIRES_STAGING"):
+                p2sec._keycloak_port()
+        with patch.dict(os.environ, {"FACTORY_P2_KEYCLOAK_PORT": "999", "FACTORY_V06_UNIFIED_STAGING": "1"}, clear=False):
+            with self.assertRaisesRegex(RuntimeError, "INVALID_FACTORY_P2_KEYCLOAK_PORT"):
+                p2sec._keycloak_port()
+        with patch.dict(os.environ, {"FACTORY_P2_KEYCLOAK_PORT": "18180", "FACTORY_V06_UNIFIED_STAGING": "1"}, clear=False):
+            self.assertEqual(p2sec._keycloak_port(), 18180)
+        with tempfile.TemporaryDirectory() as td:
+            with patch.dict(os.environ, {"FACTORY_P2_KEYCLOAK_PORT": "", "FACTORY_P2_CREDS_DIR": td}, clear=False):
+                with self.assertRaisesRegex(RuntimeError, "P2_CREDS_OVERRIDE_FORBIDDEN_ON_LIVE_KEYCLOAK"):
+                    p2sec._creds_dir()
+            with patch.dict(
+                os.environ,
+                {"FACTORY_V06_UNIFIED_STAGING": "1", "FACTORY_P2_KEYCLOAK_PORT": "18180", "FACTORY_P2_CREDS_DIR": td},
+                clear=False,
+            ):
+                self.assertEqual(p2sec._creds_dir(), Path(td).resolve())
+            with patch.dict(
+                os.environ,
+                {"FACTORY_V06_UNIFIED_STAGING": "1", "FACTORY_P2_KEYCLOAK_PORT": "18180", "FACTORY_P2_CREDS_DIR": str(Path(td) / "missing")},
+                clear=False,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "INVALID_FACTORY_P2_CREDS_DIR"):
+                    p2sec._creds_dir()
+        with patch.dict(os.environ, {"FACTORY_AI_PORT": "80"}, clear=False):
+            with self.assertRaisesRegex(RuntimeError, "INVALID_FACTORY_AI_PORT"):
+                ai_extension._ai_port()
+        with patch.dict(os.environ, {"FACTORY_AI_PORT": "19286"}, clear=False):
+            self.assertEqual(ai_extension._ai_port(), 19286)
+        with patch.dict(os.environ, {"FACTORY_AI_NGL": "abc"}, clear=False):
+            with self.assertRaisesRegex(RuntimeError, "INVALID_FACTORY_AI_NGL"):
+                ai_extension._ai_ngl()
+
 
 class AntigravityIsolatedFullStackTests(unittest.TestCase):
     def test_07_end_to_end_ocr_rls_revocation_purge_and_fault_injection(self):

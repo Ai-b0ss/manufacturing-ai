@@ -41,7 +41,7 @@ def verify_cad(package, expected, report, part_key):
         issues.append("REPORT_APPROVAL_INVALID")
     expected_part = (part or Path(files["model"].name).stem).strip()
     name = report.get("part")
-    if not isinstance(name, str) or name != expected_part:
+    if not isinstance(name, str) or not name or name != expected_part:
         issues.append("REPORT_PART_MISMATCH")
     if not isinstance(name, str) or not isinstance(part_key, str) or name.strip().lower() != part_key:
         issues.append("KIT_PART_KEY_MISMATCH")

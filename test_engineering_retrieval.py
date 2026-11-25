@@ -126,6 +126,26 @@ class EngineeringRetrievalTests(unittest.TestCase):
             self.assertIn("VALVE-908",[x["id"] for x in found])
             self.assertNotIn("VALVE-9088",[x["id"] for x in found])
 
+    def test_15_exact_cyrillic_identifier_before_period_not_homoglyph(self):
+        items=self.search("technologist","12Х18Н10Т")
+        row=next(x for x in items if x["doc_id"]=="DOC-001")
+        self.assertEqual(row["identifier_match"],"exact")
+
+    def test_16_query_with_trailing_period_preserves_exact_vs_homoglyph(self):
+        exact_items=self.search("technologist","АБВГ.712345.004-02.")
+        exact_row=next(x for x in exact_items if x["doc_id"]=="DOC-001")
+        self.assertEqual(exact_row["identifier_match"],"exact")
+        latin_items=self.search("technologist","12X18H10T.")
+        latin_row=next(x for x in latin_items if x["doc_id"]=="DOC-001")
+        self.assertEqual(latin_row["identifier_match"],"homoglyph_candidate")
+
+    def test_17_identifier_with_trailing_period_keeps_numeric_boundary(self):
+        items=self.search("technologist","VALVE-908.")
+        self.assertIn("VALVE-908",[x["doc_id"] for x in items])
+        self.assertNotIn("VALVE-9088",[x["doc_id"] for x in items])
+        row=next(x for x in items if x["doc_id"]=="VALVE-908")
+        self.assertEqual(row["identifier_match"],"exact")
+
 
 if __name__=="__main__":
     unittest.main()
