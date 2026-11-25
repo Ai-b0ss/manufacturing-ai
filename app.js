@@ -12,9 +12,9 @@ function uiIcon(name){
   svg.append(use);
   return svg;
 }
-const state = {me:null,page:'home',query:'',aiPoll:null,aiBusy:false,aiStatus:'stopped',sessionSerial:0,uploadCaps:null,uploadKey:null,uploadDocId:null,uploadBusy:false};
+const state = {me:null,page:'home',query:'',aiPoll:null,aiBusy:false,aiStatus:'stopped',sessionSerial:0,uploadCaps:null,uploadKey:null,uploadDocId:null,uploadBusy:false,backendMode:'unified',demoUiReady:false};
 const titles = {home:'Главная',documents:'Документы',assistant:'Вопросы по файлам',part:'Детали и партии',engineering:'Инженерный корпус',metrics:'Затраты'};
-const types = {uploaded:'Загруженный документ',drawing:'Чертёж',routing:'Технологическая карта',change:'Извещение об изменении',finance:'Отчёт о затратах',internal:'Внутренний документ',manual:'Инструкция',uploaded:'Загруженный файл'};
+const types = {drawing:'Чертёж',routing:'Технологическая карта',change:'Извещение об изменении',finance:'Отчёт о затратах',internal:'Внутренний документ',manual:'Инструкция',uploaded:'Загруженный файл'};
 const fmt = new Intl.NumberFormat('ru-RU',{maximumFractionDigits:0});
 const money = value => fmt.format(value)+' ₽';
 function el(tag,className='',text=''){
@@ -23,8 +23,120 @@ function el(tag,className='',text=''){
   n.textContent=String(text ?? '');
   return n;
 }
+function isDemoMode(){
+  return state.backendMode==='demo';
+}
+async function detectBackendMode(){
+  if(location.hostname!=='127.0.0.1' && location.hostname!=='localhost')return;
+  try{
+    const r=await fetch('/api/health',{credentials:'same-origin',cache:'no-store'});
+    if(!r.ok)return;
+    const data=await r.json();
+    if(data && data.status==='ok' && data.mode==='synthetic-local-demo'){
+      state.backendMode='demo';
+      applyDemoModeUI();
+    }
+  }catch{}
+}
+function applyDemoModeUI(){
+  if(state.demoUiReady)return;
+  state.demoUiReady=true;
+  const authInner=document.querySelector('#auth .auth-inner');
+  const truthBox=authInner?.querySelector('.truth-note > div');
+  if(truthBox){
+    truthBox.replaceChildren(
+      el('strong','','Это демонстрационная версия.'),
+      document.createTextNode(' Локальный стенд на учебных данных без Keycloak. Не загружайте рабочие документы, персональные данные и коммерческую тайну.')
+    );
+  }
+  const roleTitle=authInner?.querySelector('.role-title');
+  if(roleTitle){
+    roleTitle.textContent='Выберите учебную роль';
+    if(roleTitle.nextElementSibling?.tagName==='P'){
+      roleTitle.nextElementSibling.textContent='У каждой роли свой доступ к учебным документам. Проверка прав выполняется на локальном сервере.';
+    }
+  }
+  const unifiedBtn=$('unified-login');
+  if(unifiedBtn)unifiedBtn.hidden=true;
+  const loginError=$('login-error');
+  if(authInner && loginError && !$('demo-role-list')){
+    const roles=[
+      {id:'technologist',primary:true,icon:'wrench',title:'Технолог цеха',desc:'Базовые инструкции, поиск по архиву и загрузка своих файлов.'},
+      {id:'engineer',primary:false,icon:'file-check-2',title:'Инженер-конструктор',desc:'Извещения КБ, проверка редакций и инженерный корпус.'},
+      {id:'finance',primary:false,icon:'chart-no-axes-column',title:'Финансовый аналитик',desc:'План-факт затрат по учебному заказу и открытые документы.'},
+      {id:'director',primary:false,icon:'files',title:'Руководитель',desc:'Полный учебный архив, включая закрытый пример отчёта дирекции.'}
+    ];
+    const list=el('div','role-list');
+    list.id='demo-role-list';
+    for(const item of roles){
+      const btn=el('button',item.primary?'role-card primary-role':'role-card');
+      btn.type='button';
+      btn.dataset.demoRole=item.id;
+      const iconWrap=el('span','role-icon');
+      iconWrap.append(uiIcon(item.icon));
+      const textWrap=el('span','role-text');
+      textWrap.append(el('strong','',item.title),el('small','',item.desc));
+      const arrow=el('span','role-arrow');
+      arrow.append(uiIcon('arrow-up-right'));
+      btn.append(iconWrap,textWrap,arrow);
+      btn.addEventListener('click',()=>demoLogin(item.id,btn));
+      list.append(btn);
+    }
+    authInner.insertBefore(list,loginError);
+  }
+  const loginForm=$('login-form');
+  if(authInner && loginForm && !loginForm.closest('details.technical-login')){
+    const details=el('details','technical-login');
+    details.append(el('summary','','Вход по паролю (demo_credentials.txt)'));
+    const userInput=$('username'),passInput=$('password');
+    if(userInput && !loginForm.querySelector('label[for="username"]')){
+      const userLabel=el('label','','Логин роли');
+      userLabel.htmlFor='username';
+      userInput.autocomplete='username';
+      userInput.required=true;
+      loginForm.insertBefore(userLabel,userInput);
+    }
+    if(passInput && !loginForm.querySelector('label[for="password"]')){
+      const passLabel=el('label','','Пароль');
+      passLabel.htmlFor='password';
+      passInput.autocomplete='current-password';
+      passInput.required=true;
+      loginForm.insertBefore(passLabel,passInput);
+    }
+    const submitBtn=loginForm.querySelector('button[type="submit"]');
+    if(submitBtn)submitBtn.className='secondary-button';
+    loginForm.hidden=false;
+    details.append(loginForm);
+    authInner.append(details);
+  }
+  const partNav=document.querySelector('.nav-item[data-page="part"]');
+  if(partNav){partNav.disabled=false;partNav.removeAttribute('title')}
+  const partTile=document.querySelector('.task-tile[data-action="part"]');
+  if(partTile){partTile.disabled=false;partTile.removeAttribute('title')}
+  const chipSub=document.querySelector('.user-chip small');
+  if(chipSub)chipSub.textContent='Локальный стенд · учебная роль';
+  const switchBtn=$('switch-demo');
+  if(switchBtn){
+    const iconSpan=el('span');
+    iconSpan.append(uiIcon('arrow-up-right'));
+    switchBtn.replaceChildren(document.createTextNode('Сменить роль '),iconSpan);
+  }
+  const homeLead=document.querySelector('#page-home .page-lead p');
+  if(homeLead)homeLead.textContent='Выберите задачу. Учебные документы с проверкой прав на локальном сервере.';
+  const uploadNote=document.querySelector('#page-assistant .upload-card p');
+  if(uploadNote)uploadNote.textContent='После загрузки текст файла станет доступен только в личном пространстве выбранной роли. До 5 МБ.';
+  const titleLabel=document.querySelector('label[for="ai-title"]');
+  if(titleLabel)titleLabel.hidden=true;
+  if($('ai-title'))$('ai-title').hidden=true;
+  const privateKit=document.querySelector('.private-kit');
+  if(privateKit)privateKit.hidden=true;
+  const kitReport=document.querySelector('.kit-report:not(.private-kit)');
+  if(kitReport)kitReport.hidden=true;
+  const p11Save=$('p11-save');
+  if(p11Save){p11Save.disabled=false;p11Save.removeAttribute('title')}
+}
 async function request(path,opts={}){
-  const mapped=path.startsWith('/api/')?'/unified'+path:path;
+  const mapped=(!isDemoMode() && path.startsWith('/api/'))?'/unified'+path:path;
   const r=await fetch(mapped,{credentials:'same-origin',cache:'no-store',...opts});
   let data;
   try{data=await r.json()}catch{throw Error('Не удалось прочитать ответ сервера')}
@@ -74,18 +186,53 @@ async function refresh(){
     setRoleView();await navigate(state.page);
   }catch{showAuth()}
 }
-async function demoLogin(){
-  window.location.assign('/auth/login');
+async function demoLogin(role,button){
+  if(!isDemoMode()){
+    window.location.assign('/auth/login');
+    return;
+  }
+  $('login-error').textContent='';
+  const buttons=document.querySelectorAll('[data-demo-role]');
+  buttons.forEach(b=>b.disabled=true);
+  try{
+    await request('/api/demo-login',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({role})
+    });
+    await refresh();
+  }catch(error){
+    $('login-error').textContent=error.message||'Не удалось выполнить вход';
+    buttons.forEach(b=>b.disabled=false);
+    if(button)button.focus();
+  }
 }
 async function logout(){
   if(!state.me)return showAuth();
+  if(isDemoMode()){
+    try{
+      await request('/api/logout',{
+        method:'POST',
+        headers:{'X-CSRF-Token':state.me.csrf,'Content-Type':'application/json'},
+        body:'{}'
+      });
+    }catch{}
+    showAuth();
+    return;
+  }
   try{
     const response=await fetch('/auth/logout',{method:'POST',credentials:'same-origin',
        headers:{'X-CSRF-Token':state.me.csrf,'Content-Type':'application/json'}});
     if(!response.ok)throw Error('Выход не подтверждён');
     const data=await response.json();
     const url=new URL(data.identity_logout_url);
-    if(url.origin+url.pathname!=='http://127.0.0.1:18080/realms/factory-core-v06/protocol/openid-connect/logout')
+    const logoutPath='/realms/factory-core-v06/protocol/openid-connect/logout';
+    const allowedCanonical=url.origin+url.pathname==='http://127.0.0.1:18080'+logoutPath;
+    const portNum=Number(url.port);
+    const allowedStaging=location.origin==='http://localhost:19137'
+      && url.protocol==='http:' && url.hostname==='127.0.0.1' && !url.username && !url.password
+      && url.pathname===logoutPath && Number.isInteger(portNum) && portNum>=1024 && portNum<=65535;
+    if(!allowedCanonical && !allowedStaging)
       throw Error('Недопустимый адрес SSO');
     showAuth();window.location.assign(url.href);
   }catch(error){$('login-error').textContent=error.message}
@@ -113,10 +260,16 @@ async function navigate(page){
   if(page==='assistant'){
     await loadUploadCapabilities();
     await loadAiStatus();
-    state.aiPoll=setInterval(()=>{if(state.me && state.page==='assistant'){loadAiStatus();loadUploadJobStatus()}},2500);
+    state.aiPoll=setInterval(()=>{if(state.me && state.page==='assistant'){loadAiStatus();if(!isDemoMode())loadUploadJobStatus()}},2500);
   }
-  if(page==='part')$('part-result').replaceChildren(el('div','message-error','Проверка применимости партий к PostgreSQL ещё не перенесена. Используйте инженерный корпус в отдельном пилоте.'));
-  if(page==='engineering'){await loadEngineering();await loadUploadCapabilities();await loadSavedKits()}
+  if(page==='part'){
+    if(isDemoMode())await loadPart();
+    else $('part-result').replaceChildren(el('div','message-error','Проверка применимости партий к PostgreSQL ещё не перенесена. Используйте инженерный корпус в отдельном пилоте.'));
+  }
+  if(page==='engineering'){
+    await loadEngineering();
+    if(!isDemoMode()){await loadUploadCapabilities();await loadSavedKits()}
+  }
   if(page==='metrics')await loadMetrics();
 }
 function card(doc){
@@ -166,12 +319,14 @@ async function openDocument(id){
     $('modal-text').textContent=d.text;
     const downloaded=d.type==='uploaded';
     const canWrite=Boolean(state.uploadCaps?.enabled&&Array.isArray(state.uploadCaps.writable_scopes)&&state.uploadCaps.writable_scopes.length>0);
-    const canDelete=downloaded&&(d.can_delete===undefined?(!state.uploadCaps||canWrite):Boolean(d.can_delete));
+    const canDelete=downloaded&&(isDemoMode()?true:(d.can_delete===undefined?(!state.uploadCaps||canWrite):Boolean(d.can_delete)));
     $('modal-download').hidden=!downloaded;
     $('modal-delete').hidden=!canDelete;
     $('modal-delete').dataset.docId=canDelete?id:'';
     if(downloaded){
-      $('modal-download').href='/unified/api/uploads/'+encodeURIComponent(id)+'/original';
+      $('modal-download').href=isDemoMode()
+        ? '/api/source-file?id='+encodeURIComponent(id)
+        : '/unified/api/uploads/'+encodeURIComponent(id)+'/original';
       $('modal-download').setAttribute('download',d.title);
     }else{
       $('modal-download').removeAttribute('href');
@@ -1226,7 +1381,7 @@ async function loadAiStatus(){
     // This preview shares the primary local model; never expose controls that
     // would start/stop the same inference process from two applications.
     const canOperateModel=['engineer','director'].includes(state.me.id);
-    $('ai-start').disabled=state.aiBusy||!canOperateModel||info.status==='ready'||info.status==='starting'||info.status==='conflict';
+    $('ai-start').disabled=state.aiBusy||!canOperateModel||info.status==='ready'||info.status==='starting'||info.status==='conflict'||info.status==='missing';
     $('ai-stop').disabled=state.aiBusy||!canOperateModel||!(info.status==='ready'||info.status==='starting');
     if(!canOperateModel)note.textContent+=' Запуском и остановкой управляет инженер или руководитель.';
   }catch(e){
@@ -1264,6 +1419,19 @@ function syncUploadButtons(){
 }
 async function loadUploadCapabilities(){
   if(!state.me)return;
+  if(isDemoMode()){
+    const personalScope='personal-'+state.me.id;
+    state.uploadCaps={enabled:true,writable_scopes:[personalScope],max_bytes:5*1024*1024};
+    const scope=$('ai-scope');
+    const opt=document.createElement('option');
+    opt.value=personalScope;
+    opt.textContent='Личное пространство ('+state.me.role+')';
+    scope.replaceChildren(opt);
+    scope.disabled=true;
+    $('ai-file').disabled=false;
+    syncUploadButtons();
+    return;
+  }
   let caps={enabled:false,writable_scopes:[],max_bytes:8*1024*1024};
   try{caps=await request('/api/upload-capabilities')}catch{}
   state.uploadCaps=caps;
@@ -1305,8 +1473,45 @@ async function aiUpload(fileOverride=null){
   const file=fileOverride||$('ai-file').files[0],
     out=$('ai-upload-result'),session=state.sessionSerial;
   if(!state.uploadCaps?.enabled){out.textContent='Нет разрешённого раздела для загрузки.';return null}
+  const maxMb=Math.round((state.uploadCaps.max_bytes||5*1024*1024)/(1024*1024));
   if(!file||!/\.(pdf|docx|txt)$/i.test(file.name)||file.size<1||
-     file.size>state.uploadCaps.max_bytes){out.textContent='Нужен PDF, DOCX или TXT не больше 8 МБ.';return null}
+     file.size>state.uploadCaps.max_bytes){out.textContent='Нужен PDF, DOCX или TXT не больше '+maxMb+' МБ.';return null}
+  if(isDemoMode()){
+    if(state.uploadBusy)return null;
+    state.uploadBusy=true;syncUploadButtons();
+    out.textContent='Извлечение текста и сохранение документа в локальной учебной базе…';
+    try{
+      const encoded=await encodeFile(file);
+      if(session!==state.sessionSerial||!state.me)return null;
+      const result=await request('/api/upload',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','X-CSRF-Token':state.me.csrf||''},
+        body:JSON.stringify({filename:file.name,base64:encoded})
+      });
+      if(session!==state.sessionSerial||!state.me)return null;
+      out.replaceChildren(el('strong','',result.duplicate
+        ?'Этот файл уже загружен (дубликат не создан).'
+        :'Оригинал и текст сохранены.'));
+      if(!result.duplicate){
+        const summary='Страниц: '+result.pages+' · фрагментов: '+result.chunks;
+        out.append(el('p','ai-hint',summary));
+      }
+      if(result.warning)out.append(el('p','ai-warning-line',result.warning));
+      const original=el('a','secondary-button ai-source-open','Скачать оригинал');
+      original.href='/api/source-file?id='+encodeURIComponent(result.id);
+      original.download=file.name;out.append(original);
+      const open=el('button','secondary-button ai-source-open','Открыть документ');
+      open.type='button';open.addEventListener('click',()=>openDocument(result.id));out.append(open);
+      $('ai-file').value='';
+      return result;
+    }catch(e){
+      if(session===state.sessionSerial)out.textContent='Ошибка загрузки: '+e.message;
+      return null;
+    }finally{
+      state.uploadBusy=false;
+      syncUploadButtons();
+    }
+  }
   const scope=$('ai-scope').value;
   if(!state.uploadCaps.writable_scopes.includes(scope)){out.textContent='Нет права записи в выбранный раздел.';return null}
   if(state.uploadBusy)return null;
@@ -1388,20 +1593,25 @@ async function aiAsk(){
       el('p','ai-answer-text',result.answer));
     if(result.filtered_lines)output.append(el('p','ai-warning-line',
       'Из текста документов пропущены '+result.filtered_lines+' строк, похожих на команды.'));
-    if(result.citation_warning)output.append(el('p','ai-warning-line',
-      'Модель не указала, какие документы использовала. Сверьте ответ с найденными файлами.'));
+    if(result.citation_warning){
+      output.append(el('p','ai-warning-line',
+        result.mode==='retrieval_only'
+          ?'Показаны найденные исходные фрагменты без нейросетевой генерации. Сверьте данные с оригиналом.'
+          :'Модель не указала, какие документы использовала. Сверьте ответ с найденными файлами.'));
+    }
     if(result.verification_required || result.sources?.some(s=>s.extraction_method==='ocr')){
       const hasHomoglyph=result.sources?.some(s=>s.identifier_match==='homoglyph_candidate');
       const hasOcr=result.sources?.some(s=>s.extraction_method==='ocr');
-      const note=hasHomoglyph
-        ? 'Обозначение совпало только после замены похожих букв кириллицы и латиницы. Сверьте номер с оригиналом.'
-        : hasOcr
-          ? 'Часть ответа основана на OCR. Проверьте цифры и обозначения на оригинальной странице.'
-          : 'ИИ дал справочный ответ на основе найденных документов. Проверьте его по источникам: это не разрешение на изготовление или эксплуатацию.';
-      output.append(el('p','ai-warning-line',note));
+      if(hasHomoglyph)output.append(el('p','ai-warning-line',
+        'Обозначение совпало только после замены похожих букв кириллицы и латиницы. Сверьте номер с оригиналом.'));
+      if(hasOcr)output.append(el('p','ai-warning-line',
+        'Часть ответа основана на OCR. Проверьте цифры и обозначения на оригинальной странице.'));
+      if(!hasHomoglyph && !hasOcr && result.mode!=='retrieval_only')output.append(el('p','ai-warning-line',
+        'ИИ дал справочный ответ на основе найденных документов. Проверьте его по источникам: это не разрешение на изготовление или эксплуатацию.'));
     }
     if(result.sources?.length){
       src.hidden=false;src.replaceChildren(el('h3','',
+        result.mode==='retrieval_only'?'Найденные документы и страницы':
         result.citation_warning?'Найденные документы — ссылка на источник не подтверждена':
         'Документы и страницы'));
       for(const source of result.sources){
@@ -1941,8 +2151,19 @@ document.querySelectorAll('[data-engineering-example]').forEach(button=>{
 $('switch-demo').addEventListener('click',logout);
 $('login-form').addEventListener('submit',async event=>{
   event.preventDefault();
-  try{
+  $('login-error').textContent='';
+  if(!isDemoMode()){
     window.location.assign('/auth/login');
+    return;
+  }
+  try{
+    await request('/api/login',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username:$('username').value.trim(),password:$('password').value})
+    });
+    $('password').value='';
+    await refresh();
   }catch(e){$('login-error').textContent=e.message}
 });
 $('modal-delete').addEventListener('click',async()=>{
@@ -1951,8 +2172,14 @@ $('modal-delete').addEventListener('click',async()=>{
   if(!confirm('Удалить файл и извлечённый из него текст из базы выбранной роли?'))return;
   $('modal-delete').disabled=true;
   try{
-    await request('/api/uploads/'+encodeURIComponent(id),{method:'DELETE',
-      headers:{'X-CSRF-Token':state.me.csrf}});
+    if(isDemoMode()){
+      await request('/api/delete-upload',{method:'POST',
+        headers:{'Content-Type':'application/json','X-CSRF-Token':state.me.csrf},
+        body:JSON.stringify({id})});
+    }else{
+      await request('/api/uploads/'+encodeURIComponent(id),{method:'DELETE',
+        headers:{'X-CSRF-Token':state.me.csrf}});
+    }
     if(!state.me||state.sessionSerial!==session)return;
     if(state.uploadDocId===id)state.uploadDocId=null;
     $('document-modal').close();
@@ -1974,4 +2201,4 @@ $('close-modal').addEventListener('click',()=>$('document-modal').close());
 $('close-modal-bottom').addEventListener('click',()=>$('document-modal').close());
 const unifiedLoginButton=$('unified-login');unifiedLoginButton.addEventListener('click',()=>window.location.assign('/auth/login'));unifiedLoginButton.dataset.ready='1';
 
-refresh();
+detectBackendMode().finally(refresh);

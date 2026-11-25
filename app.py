@@ -134,7 +134,7 @@ def ensure_demo_notice_link(db):
         raise
 
 
-def initialize(path: pathlib.Path = DB, credentials: pathlib.Path = CREDS):
+def initialize(path: pathlib.Path = DB, credentials: pathlib.Path = CREDS, url: str = "http://127.0.0.1:19081"):
     path.parent.mkdir(parents=True, exist_ok=True)
     db = connect(path)
     try:
@@ -152,7 +152,7 @@ def initialize(path: pathlib.Path = DB, credentials: pathlib.Path = CREDS):
             "director": "Руководитель",
         }
         secrets_file = ["Локальный демонстрационный стенд. Не использовать эти учётные данные в реальной системе.",
-                        "Адрес: http://127.0.0.1:19081", ""]
+                        f"Адрес: {url}", ""]
         for username, role in roles.items():
             passphrase = secrets.token_urlsafe(14)
             salt = secrets.token_hex(16)
@@ -959,8 +959,35 @@ class Handler(BaseHTTPRequestHandler):
                                                "Уточните обозначение или загрузите подходящий документ.",
                                        "sources":[],"mode":"no_sources"})
                 original_fingerprint=scope_fingerprint(db,subject)
-                if ai_extension.status()["status"]!="ready":
-                    return self.fail(503,"Модель не запущена. Включите её в основной версии приложения.")
+                model_state=ai_extension.status()
+                if model_state.get("status")!="ready":
+                    if self.user(db) is None or scope_fingerprint(db,subject)!=original_fingerprint:
+                        return self.fail(409,"Права доступа изменились во время ответа. Повторите запрос.")
+                    for x in evidence:
+                        if get_document(db,subject,x["doc_id"]) is None:
+                            return self.fail(409,"Доступ к источнику изменился.")
+                    llm_status=str(model_state.get("status") or "stopped")
+                    fallback_messages={
+                        "missing":"Найдены разрешённые фрагменты документов. Локальная модель не установлена (FACTORY_AI_MODEL / FACTORY_AI_SERVER); проверьте исходные фрагменты ниже.",
+                        "starting":"Найдены разрешённые фрагменты документов. Локальная модель сейчас загружается; проверьте исходные фрагменты ниже или повторите запрос позже.",
+                        "conflict":"Найдены разрешённые фрагменты документов. Порт локальной модели занят другим процессом; генерация отключена, проверьте исходные фрагменты ниже.",
+                        "error":"Найдены разрешённые фрагменты документов. Локальная модель завершилась с ошибкой; проверьте исходные фрагменты ниже.",
+                    }
+                    fallback_answer=fallback_messages.get(
+                        llm_status,
+                        "Найдены разрешённые фрагменты документов. Локальная модель сейчас не запущена; проверьте исходные фрагменты ниже или запустите модель.")
+                    sources=[{"number":i,"doc_id":e["doc_id"],"title":e["title"],
+                              "page":e["page"],"excerpt":e["body"][:400],
+                              "extraction_method":e.get("extraction_method","text"),
+                              "identifier_match":e.get("identifier_match"),
+                              "cited":False}
+                             for i,e in enumerate(evidence,1)]
+                    audit(db,subject,"ai_question","allowed_scopes:retrieval_only","ok")
+                    return self.reply({"answer":fallback_answer,"citations":[],
+                                       "citation_warning":True,"filtered_lines":0,
+                                       "sources":sources,"mode":"retrieval_only",
+                                       "llm_status":llm_status,
+                                       "verification_required":True})
                 try:
                     generated=ai_extension.generate(question,evidence)
                 except ai_extension.BusyError as e:return self.fail(429,str(e))
@@ -987,20 +1014,27 @@ class Handler(BaseHTTPRequestHandler):
             return self.fail(404,"Не найдено")
 
 
-def serve(path=DB, host='127.0.0.1',port=19081):
-    initialize(path)
+def serve(path=DB, host='127.0.0.1',port=19081,credentials=None):
+    db_path=pathlib.Path(path)
+    creds_path=pathlib.Path(credentials) if credentials is not None else (
+        CREDS if db_path==DB else db_path.parent/"demo_credentials.txt")
     httpd=ThreadingHTTPServer((host,port),Handler)
-    httpd.database_path=path
-    print(f"FACTORY_MVP_READY http://{host}:{httpd.server_port}",flush=True)
-    print(f"CREDENTIALS_FILE {CREDS}",flush=True)
-    httpd.serve_forever()
+    try:
+        initialize(db_path,creds_path,url=f"http://{host}:{httpd.server_port}")
+        httpd.database_path=db_path
+        print(f"FACTORY_MVP_READY http://{host}:{httpd.server_port}",flush=True)
+        print(f"CREDENTIALS_FILE {creds_path}",flush=True)
+        httpd.serve_forever()
+    finally:
+        httpd.server_close()
 
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser()
     parser.add_argument('--port',type=int,default=19081)
     parser.add_argument('--host',default='127.0.0.1')
+    parser.add_argument('--db',default=str(DB))
     args=parser.parse_args()
     if args.host not in ('127.0.0.1','localhost'):
         parser.error('This synthetic demo only supports localhost')
-    serve(host=args.host,port=args.port)
+    serve(path=pathlib.Path(args.db),host=args.host,port=args.port)

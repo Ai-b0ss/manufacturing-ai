@@ -14,10 +14,12 @@ ISSUER="http://127.0.0.1:18080/realms/factory-core-v06"
 API="http://127.0.0.1:19138"
 
 def mint(name):
-    pwd=json.loads((CREDS/"keycloak-demo-users.json").read_text(encoding="utf-8"))[name]
-    secret=(CREDS/"keycloak-e2e-client-secret.txt").read_text(encoding="ascii")
+    from p2_gateway.security import ISSUER as p2_issuer, _creds_dir
+    creds=_creds_dir()
+    pwd=json.loads((creds/"keycloak-demo-users.json").read_text(encoding="utf-8"))[name]
+    secret=(creds/"keycloak-e2e-client-secret.txt").read_text(encoding="ascii").strip()
     with httpx.Client(timeout=15,trust_env=False) as c:
-        r=c.post(ISSUER+"/protocol/openid-connect/token",
+        r=c.post(p2_issuer+"/protocol/openid-connect/token",
           data={"grant_type":"password","client_id":"factory-e2e",
                 "client_secret":secret,"username":name,"password":pwd})
         if r.status_code!=200:raise RuntimeError("KEYCLOAK_TEST_USER_AUTH_FAILED:"+name)

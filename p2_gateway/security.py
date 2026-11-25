@@ -12,7 +12,18 @@ import httpx
 import jwt
 from fastapi import HTTPException
 
-ISSUER="http://127.0.0.1:18080/realms/factory-core-v06"
+def _keycloak_port()->int:
+    raw=os.environ.get("FACTORY_P2_KEYCLOAK_PORT","").strip()
+    if not raw:
+        return 18080
+    if os.environ.get("FACTORY_V06_UNIFIED_STAGING")!="1":
+        raise RuntimeError("KEYCLOAK_PORT_OVERRIDE_REQUIRES_STAGING")
+    if not raw.isascii() or not raw.isdigit() or not 1024<=int(raw)<=65535:
+        raise RuntimeError("INVALID_FACTORY_P2_KEYCLOAK_PORT")
+    return int(raw)
+
+KEYCLOAK_PORT=_keycloak_port()
+ISSUER=f"http://127.0.0.1:{KEYCLOAK_PORT}/realms/factory-core-v06"
 TOKEN_ENDPOINT=ISSUER+"/protocol/openid-connect/token"
 INTROSPECT_ENDPOINT=ISSUER+"/protocol/openid-connect/token/introspect"
 END_SESSION_ENDPOINT=ISSUER+"/protocol/openid-connect/logout"
@@ -24,6 +35,18 @@ if not re.fullmatch(r"factory-web(?:-audit|-unified)?",WEB_CLIENT):
     raise RuntimeError("INVALID_TEST_ONLY_OIDC_CLIENT")
 ALLOWED_CALLERS=frozenset((WEB_CLIENT,E2E_CLIENT))
 CREDS=Path(r"K:\ManufacturingAI-CoreRuntime\credentials")
+
+
+def _creds_dir()->Path:
+    raw=os.environ.get("FACTORY_P2_CREDS_DIR","").strip()
+    if not raw:
+        return CREDS
+    if _keycloak_port()==18080:
+        raise RuntimeError("P2_CREDS_OVERRIDE_FORBIDDEN_ON_LIVE_KEYCLOAK")
+    path=Path(raw).resolve()
+    if not path.is_dir():
+        raise RuntimeError("INVALID_FACTORY_P2_CREDS_DIR")
+    return path
 
 @dataclass(frozen=True)
 class Principal:
@@ -91,7 +114,7 @@ def verify_access_token(value:str)->Principal:
     # Mandatory introspection avoids accepting a token whose user/session was
     # disabled or logged out after JWT issuance. No stale approval cache.
     try:
-        password=(CREDS/"keycloak-gateway-client-secret.txt").read_text(encoding="ascii")
+        password=(_creds_dir()/"keycloak-gateway-client-secret.txt").read_text(encoding="ascii").strip()
         r=None
         for attempt in range(2):
             try:

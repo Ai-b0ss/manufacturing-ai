@@ -45,12 +45,15 @@ def _hidden_startupinfo():
 def ocr_image(path):
     if not OCR_SCRIPT.is_file():
         raise RuntimeError("Windows OCR script not installed")
-    p=subprocess.run(["powershell","-NoProfile","-NonInteractive","-WindowStyle","Hidden",
-                      "-ExecutionPolicy","Bypass","-File",str(OCR_SCRIPT),
-                      "-ImagePath",str(path)],capture_output=True,text=True,
-                     encoding="utf-8",errors="strict",timeout=10,
-                     creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0),
-                     startupinfo=_hidden_startupinfo())
+    try:
+        p=subprocess.run(["powershell","-NoProfile","-NonInteractive","-WindowStyle","Hidden",
+                          "-ExecutionPolicy","Bypass","-File",str(OCR_SCRIPT),
+                          "-ImagePath",str(path)],capture_output=True,text=True,
+                         encoding="utf-8",errors="strict",timeout=25,
+                         creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0),
+                         startupinfo=_hidden_startupinfo())
+    except OSError as exc:
+        raise RuntimeError("Встроенный Windows OCR недоступен в этой среде.") from exc
     try:
         result=json.loads(p.stdout)
     except ValueError:
@@ -98,7 +101,10 @@ def raster_page_ocr(page,dir_path,tile_budget):
 
 
 def extract_pdf(source):
-    import fitz
+    try:
+        import fitz
+    except ModuleNotFoundError as exc:
+        raise ValueError("Для разбора PDF установите зависимости из requirements-documents.txt (PyMuPDF).") from exc
     result=[];missing=[];ocr_pages=[];skipped=[];ocr_count=0;tiles_used=0
     with fitz.open(str(source)) as doc:
         if doc.needs_pass:
@@ -119,7 +125,7 @@ def extract_pdf(source):
                 try:
                     ocr_text,lang,tiles=raster_page_ocr(page,folder,MAX_OCR_TILES_TOTAL-tiles_used)
                     tiles_used+=tiles
-                except (ValueError,RuntimeError,subprocess.TimeoutExpired) as exc:
+                except (ValueError,RuntimeError,OSError,subprocess.TimeoutExpired) as exc:
                     missing.append(page_no)
                     skipped.append(page_no)
                     continue
@@ -133,12 +139,18 @@ def extract_pdf(source):
 
 
 def extract_docx(source):
-    with zipfile.ZipFile(source) as z:
-        if len(z.infolist())>2500 or sum(i.file_size for i in z.infolist())>MAX_EXPANDED:
-            raise ValueError("DOCX содержит слишком много распакованных данных.")
-        if any(i.flag_bits&1 for i in z.infolist()):
-            raise ValueError("Зашифрованный DOCX не поддерживается.")
-    from docx import Document
+    try:
+        with zipfile.ZipFile(source) as z:
+            if len(z.infolist())>2500 or sum(i.file_size for i in z.infolist())>MAX_EXPANDED:
+                raise ValueError("DOCX содержит слишком много распакованных данных.")
+            if any(i.flag_bits&1 for i in z.infolist()):
+                raise ValueError("Зашифрованный DOCX не поддерживается.")
+    except zipfile.BadZipFile as exc:
+        raise ValueError("Повреждённый или неподдерживаемый DOCX-файл.") from exc
+    try:
+        from docx import Document
+    except ModuleNotFoundError as exc:
+        raise ValueError("Для разбора DOCX установите зависимости из requirements-documents.txt (python-docx).") from exc
     doc=Document(source)
     blocks=[]
     if hasattr(doc,"iter_inner_content"):
@@ -161,7 +173,10 @@ def extract_docx(source):
 def extract_txt(source):
     raw=source.read_bytes()
     try:text=raw.decode("utf-8-sig")
-    except UnicodeError:text=raw.decode("cp1251")
+    except UnicodeError:
+        try:text=raw.decode("cp1251")
+        except UnicodeError as exc:
+            raise ValueError("Не удалось определить кодировку TXT (поддерживаются UTF-8 и Windows-1251).") from exc
     text=clean(text)
     return ([{"page":1,"text":text,"extraction_method":"text"}] if text else [])
 

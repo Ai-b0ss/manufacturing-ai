@@ -551,5 +551,68 @@ with tempfile.TemporaryDirectory() as tmp:
         self.assertEqual(result["ocr_pages"],[2])
         self.assertIn("OCR",result["note"])
 
+    def test_30_ask_degrades_to_retrieval_only_when_model_unavailable(self):
+        ck,csrf=self.login("technologist")
+        for state_name in ("missing","stopped","conflict"):
+            with mock.patch.object(ai_extension,"status",
+                                   return_value={"status":state_name,"message":"unavailable"}):
+                code,res,_=self.call("POST","/api/ask",
+                    {"question":"Что делать при перегреве шпинделя станка?"},
+                    cookie=ck,csrf=csrf)
+            self.assertEqual(code,200,res)
+            self.assertEqual(res["mode"],"retrieval_only")
+            self.assertEqual(res["llm_status"],state_name)
+            self.assertEqual(res["citations"],[])
+            self.assertTrue(res["citation_warning"])
+            self.assertTrue(res["verification_required"])
+            self.assertTrue(res["sources"])
+            self.assertTrue(all(s["doc_id"] not in ("DOC-005","DOC-003") for s in res["sources"]))
+            self.assertTrue(all(s["cited"] is False for s in res["sources"]))
+
+    def test_31_retrieval_only_still_blocks_revocation_during_status_check(self):
+        ck,csrf=self.login("technologist")
+        def revoke_during_status():
+            with contextlib.closing(app.connect(self.path)) as db:
+                db.execute("UPDATE scope SET epoch=epoch+1 WHERE id='public'")
+            return {"status":"missing","message":"missing"}
+        with mock.patch.object(ai_extension,"status",side_effect=revoke_during_status):
+            code,res,_=self.call("POST","/api/ask",
+                {"question":"Перегрев шпинделя станка"},cookie=ck,csrf=csrf)
+        self.assertEqual(code,409,res)
+        self.assertNotIn("sources",res)
+
+    def test_32_parser_default_uses_active_python_and_worker_handles_errors(self):
+        import importlib.util,os,sys
+        import extract_worker
+        if not os.getenv("FACTORY_AI_PARSER_PY"):
+            expected_base=(pathlib.Path(sys.base_prefix)/"python.exe"
+                           if os.name=="nt"
+                           else pathlib.Path(sys.base_prefix)/"bin"/"python3")
+            if importlib.util.find_spec("fitz") is not None or sys.base_prefix==sys.prefix or not expected_base.is_file():
+                self.assertEqual(ai_extension.PARSER_PY,pathlib.Path(sys.executable))
+            else:
+                self.assertEqual(ai_extension.PARSER_PY,expected_base)
+            self.assertTrue(ai_extension.PARSER_PY.is_file())
+        bad_txt=self.dir/"bad_encoding.txt"
+        bad_txt.write_bytes(b"\x98\xff\xfe")
+        with self.assertRaisesRegex(ValueError,"кодировку TXT"):
+            extract_worker.extract_txt(bad_txt)
+        bad_docx=self.dir/"corrupt.docx"
+        bad_docx.write_bytes(b"PK\x03\x04not-a-valid-zip")
+        with self.assertRaisesRegex(ValueError,"DOCX"):
+            extract_worker.extract_docx(bad_docx)
+        with mock.patch.object(extract_worker.subprocess,"run",side_effect=FileNotFoundError("no powershell")):
+            with self.assertRaisesRegex(RuntimeError,"Windows OCR недоступен"):
+                extract_worker.ocr_image(bad_txt)
+
+    def test_33_initialize_writes_actual_url_into_credentials(self):
+        with tempfile.TemporaryDirectory(prefix="factory-init-url-") as td:
+            dbp=pathlib.Path(td)/"demo.sqlite3"
+            creds=pathlib.Path(td)/"creds.txt"
+            app.initialize(dbp,creds,url="http://127.0.0.1:19134")
+            text=creds.read_text(encoding="utf-8")
+            self.assertIn("http://127.0.0.1:19134",text)
+            self.assertNotIn("http://127.0.0.1:19081",text)
+
 
 if __name__=="__main__":unittest.main()

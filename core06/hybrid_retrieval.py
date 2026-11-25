@@ -26,7 +26,12 @@ COLLECTION=_STAGE_COLLECTION or "factory_v06_demo_hybrid"
 TENANT="synthetic-demo"
 VECTOR_SIZE=384
 NAMESPACE=uuid.UUID("06fef1ba-e774-4c30-ac9d-cc66b0e6f896")
-MODEL_PATH=Path(r"C:\Users\user\.cache\huggingface\hub\models--intfloat--multilingual-e5-small\snapshots\614241f622f53c4eeff9890bdc4f31cfecc418b3")
+_DEFAULT_MODEL_PATH=(
+    Path.home()/".cache"/"huggingface"/"hub"/
+    "models--intfloat--multilingual-e5-small"/"snapshots"/
+    "614241f622f53c4eeff9890bdc4f31cfecc418b3"
+)
+MODEL_PATH=Path(os.environ.get("FACTORY_EMBEDDING_MODEL_PATH") or str(_DEFAULT_MODEL_PATH))
 APIKEY=Path(r"K:\ManufacturingAI-CoreRuntime\credentials\qdrant-api-key.txt")
 URL="http://127.0.0.1:16333"
 _ISOLATED_VECTOR_PORT = os.environ.get("FACTORY_V06_ISOLATED_VECTOR_PORT")
