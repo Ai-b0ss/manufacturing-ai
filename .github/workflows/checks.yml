@@ -11,7 +11,8 @@ jobs:
         with:
           python-version: '3.13'
       - name: Python AST syntax check
-        run: python -c "import ast, pathlib; files=[f for f in pathlib.Path('.').rglob('*.py') if '.git' not in f.parts]; [ast.parse(f.read_text('utf-8-sig'), str(f)) for f in files]; print(f'AST OK: {len(files)} files')"
+        run: |
+          python -c "import ast, pathlib; files=[f for f in pathlib.Path('.').rglob('*.py') if '.git' not in f.parts]; [ast.parse(f.read_text('utf-8-sig'), str(f)) for f in files]; print(f'AST OK: {len(files)} files')"
       - name: Synthetic HTTP, access and revision tests
         run: python -m unittest test_app test_engineering_retrieval test_engineering_evidence
       - name: Frontend JS syntax and state-machine regressions
