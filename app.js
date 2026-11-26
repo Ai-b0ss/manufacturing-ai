@@ -1601,12 +1601,15 @@ async function aiAsk(){
     }
     if(result.verification_required || result.sources?.some(s=>s.extraction_method==='ocr')){
       const hasHomoglyph=result.sources?.some(s=>s.identifier_match==='homoglyph_candidate');
+      const hasOcrFuzzy=result.sources?.some(s=>s.identifier_match==='ocr_fuzzy_candidate');
       const hasOcr=result.sources?.some(s=>s.extraction_method==='ocr');
       if(hasHomoglyph)output.append(el('p','ai-warning-line',
         'Обозначение совпало только после замены похожих букв кириллицы и латиницы. Сверьте номер с оригиналом.'));
+      if(hasOcrFuzzy)output.append(el('p','ai-warning-line',
+        'Обозначение на скане совпало с допуском OCR (О/0, З/3). Сверьте код с оригинальной страницей.'));
       if(hasOcr)output.append(el('p','ai-warning-line',
         'Часть ответа основана на OCR. Проверьте цифры и обозначения на оригинальной странице.'));
-      if(!hasHomoglyph && !hasOcr && result.mode!=='retrieval_only')output.append(el('p','ai-warning-line',
+      if(!hasHomoglyph && !hasOcrFuzzy && !hasOcr && result.mode!=='retrieval_only')output.append(el('p','ai-warning-line',
         'ИИ дал справочный ответ на основе найденных документов. Проверьте его по источникам: это не разрешение на изготовление или эксплуатацию.'));
     }
     if(result.sources?.length){
@@ -1620,7 +1623,8 @@ async function aiAsk(){
         heading.append(el('strong','', '['+source.number+'] '+source.title+
           (source.cited?' · указан в ответе':' · дополнительный документ')),
           el('span','', 'Страница '+source.page+(source.extraction_method==='ocr'?' · OCR':'')+
-            (source.identifier_match==='homoglyph_candidate'?' · сходство символов':'')));
+            (source.identifier_match==='homoglyph_candidate'?' · сходство символов':
+             source.identifier_match==='ocr_fuzzy_candidate'?' · OCR-сходство':'')));
         card.append(heading,el('p','',source.excerpt));
         const button=el('button','ai-source-open','Открыть документ');button.append(uiIcon('arrow-up-right'));
         button.type='button';button.addEventListener('click',()=>openDocument(source.doc_id));

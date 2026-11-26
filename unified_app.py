@@ -354,7 +354,7 @@ async def unified_ask(request:Request):
         _error(409,"SOURCES_CHANGED_DURING_GENERATION")
     if fallback_reason is not None:
         return search_only_response(selected, fallback_reason)
-    answer=generated_response(selected,generated)
+    answer=generated_response(selected,generated,question=question)
     if answer is None:
         return search_only_response(selected,
             "Модель не подтвердила ответ ссылками на источники. "

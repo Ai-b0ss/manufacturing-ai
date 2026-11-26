@@ -83,17 +83,56 @@ def read_authorized_document(db,verified_actor,doc_id):
         return {"document":row,"chunks":chunks}
 
 def search_authorized_chunks(db,verified_actor,query,limit=10):
+    from core06.text_grounding import build_pg_tsqueries
     subject=_subject(verified_actor);cap=_limit(limit)
     if not isinstance(query,str) or not 1<=len(query.strip())<=250:
         raise InvalidRequest("QUERY_INVALID")
+    ru_tsq,simple_tsq=build_pg_tsqueries(query)
+    if not ru_tsq and not simple_tsq:
+        return []
     with db.transaction():
         db.execute("SELECT set_config('factory.actor_id', %s, true)",(subject,))
+        if ru_tsq and simple_tsq:
+            return db.execute("""SELECT c.id,c.document_id,
+                             ts_rank_cd(
+                               setweight(to_tsvector('russian',concat_ws(' ',d.title,d.designation)),'A') ||
+                               setweight(to_tsvector('russian',c.body),'B'),
+                               to_tsquery('russian',%s)
+                             ) +
+                             ts_rank_cd(
+                               setweight(to_tsvector('simple',translate(concat_ws(' ',d.title,d.designation),'.-','  ')),'A') ||
+                               setweight(to_tsvector('simple',translate(c.body,'.-','  ')),'B'),
+                               to_tsquery('simple',%s)
+                             ) AS rank
+                         FROM core.document_chunk c
+                         JOIN core.document d ON d.id=c.document_id
+                         WHERE to_tsvector('russian',concat_ws(' ',d.title,d.designation,c.body)) @@ to_tsquery('russian',%s)
+                            OR to_tsvector('simple',translate(concat_ws(' ',d.title,d.designation,c.body),'.-','  ')) @@ to_tsquery('simple',%s)
+                         ORDER BY rank DESC,c.id LIMIT %s""",
+                    (ru_tsq,simple_tsq,ru_tsq,simple_tsq,cap)).fetchall()
+        if ru_tsq:
+            return db.execute("""SELECT c.id,c.document_id,
+                             ts_rank_cd(
+                               setweight(to_tsvector('russian',concat_ws(' ',d.title,d.designation)),'A') ||
+                               setweight(to_tsvector('russian',c.body),'B'),
+                               to_tsquery('russian',%s)
+                             ) AS rank
+                         FROM core.document_chunk c
+                         JOIN core.document d ON d.id=c.document_id
+                         WHERE to_tsvector('russian',concat_ws(' ',d.title,d.designation,c.body)) @@ to_tsquery('russian',%s)
+                         ORDER BY rank DESC,c.id LIMIT %s""",
+                    (ru_tsq,ru_tsq,cap)).fetchall()
         return db.execute("""SELECT c.id,c.document_id,
-                         ts_rank_cd(c.search_vector,plainto_tsquery('simple',%s)) AS rank
+                         ts_rank_cd(
+                           setweight(to_tsvector('simple',translate(concat_ws(' ',d.title,d.designation),'.-','  ')),'A') ||
+                           setweight(to_tsvector('simple',translate(c.body,'.-','  ')),'B'),
+                           to_tsquery('simple',%s)
+                         ) AS rank
                      FROM core.document_chunk c
-                     WHERE c.search_vector @@ plainto_tsquery('simple',%s)
+                     JOIN core.document d ON d.id=c.document_id
+                     WHERE to_tsvector('simple',translate(concat_ws(' ',d.title,d.designation,c.body),'.-','  ')) @@ to_tsquery('simple',%s)
                      ORDER BY rank DESC,c.id LIMIT %s""",
-                (query,query,cap)).fetchall()
+                (simple_tsq,simple_tsq,cap)).fetchall()
 
 def authorized_finance(db,verified_actor,limit=50):
     subject=_subject(verified_actor);cap=_limit(limit)

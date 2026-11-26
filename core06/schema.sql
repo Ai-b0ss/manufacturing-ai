@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS core.document_chunk (
 );
 CREATE INDEX IF NOT EXISTS chunk_by_document ON core.document_chunk(document_id);
 CREATE INDEX IF NOT EXISTS chunk_fts_gin ON core.document_chunk USING gin(search_vector);
+CREATE INDEX IF NOT EXISTS chunk_fts_ru_gin ON core.document_chunk USING gin(to_tsvector('russian'::regconfig,body));
+CREATE INDEX IF NOT EXISTS doc_fts_ru_gin ON core.document USING gin(to_tsvector('russian'::regconfig,title||' '||designation));
 CREATE TABLE IF NOT EXISTS core.finance (
     id text PRIMARY KEY,
     title text NOT NULL,

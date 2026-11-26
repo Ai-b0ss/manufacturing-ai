@@ -334,11 +334,14 @@ def lexical_search(db,subject,raw_query,limit=20):
     tokens=ai_extension._tokens(raw_query)
     codes=ai_extension._IDENTIFIER_PATTERN.findall(raw_query)
     if not tokens and not codes:return []
-    numbers=[token for token in tokens if token.isdecimal()]
-    wanted={ai_extension._identifier_key(c) for c in codes}
-    rows=db.execute("""SELECT d.id,d.title,d.designation,d.type,d.revision,d.scope_id,c.body
+    numbers=ai_extension._standalone_numbers(raw_query)
+    required_keys={ai_extension._identifier_key(c) for c in codes}
+    covered_keys=set()
+    rows=db.execute("""SELECT d.id,d.title,d.designation,d.type,d.revision,d.scope_id,c.body,
+                              COALESCE(cp.extraction_method,'text') AS extraction_method
         FROM document d JOIN acl a ON a.scope_id=d.scope_id AND a.account_id=?
-        JOIN chunk c ON c.doc_id=d.id""",(subject,)).fetchall()
+        JOIN chunk c ON c.doc_id=d.id
+        LEFT JOIN chunk_page cp ON cp.chunk_id=c.id""",(subject,)).fetchall()
     best={}
     for r in rows:
         full=r["title"]+" "+r["designation"]+" "+r["body"]
@@ -346,19 +349,27 @@ def lexical_search(db,subject,raw_query,limit=20):
         heading=(r["title"]+" "+r["designation"]).casefold().replace("ё","е")
         if numbers and any(not ai_extension._contains_number(normalized,n) for n in numbers):
             continue
-        matching_codes=ai_extension._IDENTIFIER_PATTERN.findall(full)
-        if wanted and not wanted.intersection(ai_extension._identifier_key(c) for c in matching_codes):
+        method="ocr" if r["extraction_method"]=="ocr" else "text"
+        eval_id=ai_extension._evaluate_identifier_match(
+            raw_query,r["title"],r["designation"],r["body"],method)
+        if required_keys and not eval_id.matched_keys:
             continue
-        hits=sum(t in normalized or (len(t)>5 and t[:5] in normalized) for t in tokens)
-        if not hits and not wanted:continue
-        score=hits*4+sum(8 for t in tokens if t in heading)
-        if wanted:score+=60
+        covered_keys.update(eval_id.matched_keys)
+        hits=sum(t in normalized or (len(t)>5 and t[:5] in normalized) for t in tokens if not t.isdecimal() or t in numbers)
+        if not hits and not required_keys:continue
+        score=hits*4+sum(8 for t in tokens if (not t.isdecimal() or t in numbers) and t in heading)
+        if required_keys:
+            score+=60+20*len(eval_id.matched_keys)+15*len(eval_id.heading_keys)
+            if eval_id.match_type=="ocr_fuzzy_candidate":score-=10
+            if eval_id.sibling_variant_conflict:score-=30
         designation_match=(len(raw_query)>5 and
                            designation_key(r["designation"])==designation_key(raw_query))
         if designation_match:score+=30
         previous=best.get(r["id"])
         if previous is None or score>previous[0]:
             best[r["id"]]=(score,r)
+    if required_keys and not required_keys.issubset(covered_keys):
+        return []
     ranked=sorted(best.values(),key=lambda x:(-x[0],x[1]["title"]))[:max(1,min(int(limit),50))]
     result=[]
     for _,row in ranked:
@@ -1007,7 +1018,7 @@ class Handler(BaseHTTPRequestHandler):
                          for i,e in enumerate(evidence,1)]
                 audit(db,subject,"ai_question","allowed_scopes","ok")
                 needs_review=generated.get("citation_warning",False) or any(
-                    e["extraction_method"]=="ocr" or e["identifier_match"]=="homoglyph_candidate"
+                    e["extraction_method"]=="ocr" or e["identifier_match"] in ("homoglyph_candidate","ocr_fuzzy_candidate")
                     for e in sources)
                 return self.reply({**generated,"sources":sources,"mode":"local_llm",
                                    "verification_required":needs_review})

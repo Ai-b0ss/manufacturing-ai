@@ -286,14 +286,55 @@ def document(request:Request,doc_id:str):
 @app.get("/api/search")
 def search(request:Request,q:str=Query(min_length=1,max_length=250),
            limit:int=Query(default=10,ge=1,le=30)):
+    from core06.text_grounding import build_pg_tsqueries
     if not q.strip():_error(422,"QUERY_EMPTY")
     principal,_=_auth(request)
+    ru_tsq,simple_tsq=build_pg_tsqueries(q)
+    if not ru_tsq and not simple_tsq:
+        return {"count":0,"results":[]}
     with _actor_db(principal) as (db,actor):
-        rows=db.execute("""SELECT c.id,c.document_id,left(c.body,420),
-                              ts_rank_cd(c.search_vector,plainto_tsquery('simple',%s))
-                         FROM core.document_chunk c
-                         WHERE c.search_vector @@ plainto_tsquery('simple',%s)
-                         ORDER BY 4 DESC,1 LIMIT %s""",(q,q,limit)).fetchall()
+        if ru_tsq and simple_tsq:
+            rows=db.execute("""SELECT c.id,c.document_id,left(c.body,420),
+                                  ts_rank_cd(
+                                    setweight(to_tsvector('russian',concat_ws(' ',d.title,d.designation)),'A') ||
+                                    setweight(to_tsvector('russian',c.body),'B'),
+                                    to_tsquery('russian',%s)
+                                  ) +
+                                  ts_rank_cd(
+                                    setweight(to_tsvector('simple',translate(concat_ws(' ',d.title,d.designation),'.-','  ')),'A') ||
+                                    setweight(to_tsvector('simple',translate(c.body,'.-','  ')),'B'),
+                                    to_tsquery('simple',%s)
+                                  ) AS rank
+                             FROM core.document_chunk c
+                             JOIN core.document d ON d.id=c.document_id
+                             WHERE to_tsvector('russian',concat_ws(' ',d.title,d.designation,c.body)) @@ to_tsquery('russian',%s)
+                                OR to_tsvector('simple',translate(concat_ws(' ',d.title,d.designation,c.body),'.-','  ')) @@ to_tsquery('simple',%s)
+                             ORDER BY rank DESC,c.id LIMIT %s""",
+                             (ru_tsq,simple_tsq,ru_tsq,simple_tsq,limit)).fetchall()
+        elif ru_tsq:
+            rows=db.execute("""SELECT c.id,c.document_id,left(c.body,420),
+                                  ts_rank_cd(
+                                    setweight(to_tsvector('russian',concat_ws(' ',d.title,d.designation)),'A') ||
+                                    setweight(to_tsvector('russian',c.body),'B'),
+                                    to_tsquery('russian',%s)
+                                  ) AS rank
+                             FROM core.document_chunk c
+                             JOIN core.document d ON d.id=c.document_id
+                             WHERE to_tsvector('russian',concat_ws(' ',d.title,d.designation,c.body)) @@ to_tsquery('russian',%s)
+                             ORDER BY rank DESC,c.id LIMIT %s""",
+                             (ru_tsq,ru_tsq,limit)).fetchall()
+        else:
+            rows=db.execute("""SELECT c.id,c.document_id,left(c.body,420),
+                                  ts_rank_cd(
+                                    setweight(to_tsvector('simple',translate(concat_ws(' ',d.title,d.designation),'.-','  ')),'A') ||
+                                    setweight(to_tsvector('simple',translate(c.body,'.-','  ')),'B'),
+                                    to_tsquery('simple',%s)
+                                  ) AS rank
+                             FROM core.document_chunk c
+                             JOIN core.document d ON d.id=c.document_id
+                             WHERE to_tsvector('simple',translate(concat_ws(' ',d.title,d.designation,c.body),'.-','  ')) @@ to_tsquery('simple',%s)
+                             ORDER BY rank DESC,c.id LIMIT %s""",
+                             (simple_tsq,simple_tsq,limit)).fetchall()
     return {"count":len(rows),"results":[dict(zip(("chunk_id","document_id","excerpt","score"),x)) for x in rows]}
 
 @app.get("/api/finance")
@@ -352,5 +393,6 @@ def hybrid_search(request:Request,q:str=Query(min_length=1,max_length=250),
             "results":[{"chunk_id":h.chunk_id,"document_id":h.document_id,
                         "title":h.title,"text":h.text,"page":h.page_no,
                         "revision":h.revision,"score":h.score,
-                        "extraction_method":h.extraction_method}
+                        "extraction_method":h.extraction_method,
+                        "identifier_match":getattr(h,"identifier_match",None)}
                        for h in found]}

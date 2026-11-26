@@ -132,7 +132,7 @@ def _process_claimed(claimed, db_factory, encoder, client):
     try:
         with db_factory(admin=True) as db:
             doc = db.execute(
-                "SELECT scope_id,deleted_at FROM core.document WHERE id=%s", (doc_id,)
+                "SELECT scope_id,deleted_at,title,designation FROM core.document WHERE id=%s", (doc_id,)
             ).fetchone()
             chunks = db.execute(
                 """SELECT id,body FROM core.document_chunk
@@ -140,7 +140,7 @@ def _process_claimed(claimed, db_factory, encoder, client):
             ).fetchall()
         if doc is None:
             raise RuntimeError("OUTBOX_MISSING_DOCUMENT")
-        scope_id, deleted_at = doc
+        scope_id, deleted_at, doc_title, doc_designation = doc
         if len(chunks) > 100:
             raise RuntimeError("TOO_MANY_INDEX_CHUNKS")
         if event_kind == "delete" or deleted_at is not None:
@@ -160,12 +160,16 @@ def _process_claimed(claimed, db_factory, encoder, client):
 
         encoder = encoder or _cached_encoder()
         hybrid.ensure_collection(client)
-        vectors = encoder.embed([body for _, body in chunks])
+        indexed_texts = [
+            hybrid.indexable_text(body, doc_title or "", doc_designation or "")
+            for _, body in chunks
+        ]
+        vectors = encoder.embed(indexed_texts)
         if len(vectors) != len(chunks):
             raise RuntimeError("INVALID_EMBEDDING_COUNT")
         points = []
-        for (chunk_id, body), dense in zip(chunks, vectors):
-            sparse = hybrid.sparse_tokens(body)
+        for (chunk_id, _body), text_for_index, dense in zip(chunks, indexed_texts, vectors):
+            sparse = hybrid.sparse_tokens(text_for_index)
             if sparse is None:
                 raise RuntimeError("EMPTY_SPARSE_CHUNK")
             payload = {

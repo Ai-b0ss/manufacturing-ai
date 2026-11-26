@@ -14,7 +14,7 @@ jobs:
         run: |
           python -c "import ast, pathlib; files=[f for f in pathlib.Path('.').rglob('*.py') if '.git' not in f.parts]; [ast.parse(f.read_text('utf-8-sig'), str(f)) for f in files]; print(f'AST OK: {len(files)} files')"
       - name: Synthetic HTTP, access and revision tests
-        run: python -m unittest test_app test_engineering_retrieval test_engineering_evidence
+        run: python -m unittest test_app test_engineering_retrieval test_engineering_evidence test_quality_grounding
       - name: Frontend JS syntax and state-machine regressions
         run: |
           node --check app.js

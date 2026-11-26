@@ -24,6 +24,19 @@ import time
 import urllib.error
 import urllib.request
 
+from core06.text_grounding import (
+    IDENTIFIER_CONFUSABLE as _IDENTIFIER_CONFUSABLE,
+    IDENTIFIER_PATTERN as _IDENTIFIER_PATTERN,
+    STOP_WORDS as _STOP,
+    citations_ground_identifiers as _citations_ground_identifiers,
+    contains_number as _contains_number,
+    evaluate_identifier_match as _evaluate_identifier_match,
+    format_verified_citations as _format_verified_citations,
+    identifier_key as _identifier_key,
+    query_tokens as _tokens,
+    standalone_numbers as _standalone_numbers,
+)
+
 def _ai_port()->int:
     raw=os.getenv("FACTORY_AI_PORT","19086").strip()
     if not raw.isascii() or not raw.isdigit() or not 1024<=int(raw)<=65535:
@@ -101,9 +114,6 @@ _UNTRUSTED_LINES=[
         r"^\s*(system|developer|assistant)\s*:",
     ]
 ]
-_STOP={"что","как","если","при","или","это","где","чего","для","без","какой",
-       "какие","почему","есть","под","про","этот","этой","мне","нужно","можно",
-       "должно","таким","согласно","расскажи","документе","документах"}
 
 
 def enable_schema(db):
@@ -312,44 +322,11 @@ def delete_uploaded(db, subject, doc_id, audit):
         raise
 
 
-def _tokens(question):
-    # Keep two-digit measurements, revision IDs and years. Deduplicate terms
-    # while preserving order. Treat ё/е identically for natural language only.
-    raw=re.findall(r"[\w]+",question.casefold().replace("ё","е"),flags=re.UNICODE)
-    out=[]
-    for token in raw:
-        if token in _STOP or not (len(token)>2 or (token.isdecimal() and len(token)>=2)):
-            continue
-        if token not in out:out.append(token)
-        if len(out)==16:break
-    return out
-
-
-_IDENTIFIER_PATTERN=re.compile(
-    r"(?<!\w)(?=[A-Za-zА-Яа-яЁё0-9.\-]*\d)"
-    r"(?:[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё0-9.\-]{2,}[A-Za-zА-Яа-яЁё0-9]|"
-    r"(?=\d{1,4}[A-Za-zА-Яа-яЁё])\d[A-Za-zА-Яа-яЁё0-9.\-]{3,}[A-Za-zА-Яа-яЁё0-9])(?!\w)",
-    flags=re.UNICODE)
-_IDENTIFIER_CONFUSABLE=str.maketrans({
-    "A":"А","B":"В","C":"С","E":"Е","H":"Н","K":"К",
-    "M":"М","O":"О","P":"Р","T":"Т","X":"Х","Y":"У"})
-
-
-def _identifier_key(value):
-    # Secondary candidate key only, NEVER proof that engineering IDs match.
-    return re.sub(r"[.\-\s]","",value.upper().translate(_IDENTIFIER_CONFUSABLE))
-
-
-def _contains_number(text,number):
-    # 25 is not the same measured value as 125, 250 or 025.
-    return re.search(r"(?<!\d)"+re.escape(number)+r"(?!\d)",text) is not None
-
-
 def retrieve(db, subject, question, top_k=5):
     """Rerank only ACL-authorized chunks; numeric and designation safety gates.
 
     This is a small-corpus lexical demonstrator, NOT a verified semantic index.
-    Homoglyph-equivalent IDs are flagged as candidates, never as identity proof.
+    Homoglyph and OCR-fuzzy IDs are flagged as candidates, never as identity proof.
     """
     tokens=_tokens(question)
     identifiers=_IDENTIFIER_PATTERN.findall(question)
@@ -364,9 +341,9 @@ def retrieve(db, subject, question, top_k=5):
         LEFT JOIN chunk_page cp ON cp.chunk_id=c.id
         ORDER BY d.id,c.id LIMIT 12000""",(subject,)).fetchall()
     candidates=[]
-    number_tokens=[t for t in tokens if t.isdecimal()]
-    raw_codes=set(c.casefold() for c in identifiers)
-    keys={_identifier_key(c) for c in identifiers}
+    number_tokens=_standalone_numbers(question)
+    required_keys={_identifier_key(c) for c in identifiers}
+    covered_keys=set()
     for r in rows:
         raw_full=r["title"]+" "+r["designation"]+" "+r["body"]
         full=raw_full.casefold().replace("ё","е")
@@ -374,21 +351,25 @@ def retrieve(db, subject, question, top_k=5):
             continue
         heading=(r["title"]+" "+r["designation"]).casefold().replace("ё","е")
         body=r["body"].casefold().replace("ё","е")
-        match_type=None
+        method="ocr" if r["extraction_method"]=="ocr" else "text"
+        eval_id=_evaluate_identifier_match(question,r["title"],r["designation"],r["body"],method)
+        match_type=eval_id.match_type
         score=0
         if identifiers:
-            codes=_IDENTIFIER_PATTERN.findall(raw_full)
-            matching=[c for c in codes if _identifier_key(c) in keys]
-            if not matching:
+            if not eval_id.matched_keys:
                 continue
-            match_type=("exact" if any(c.casefold() in raw_codes for c in matching)
-                        else "homoglyph_candidate")
-            score+=75 if match_type=="exact" else 65
-            score+=8*min(len({_identifier_key(c) for c in matching}),3)
+            covered_keys.update(eval_id.matched_keys)
+            score+={"exact":75,"homoglyph_candidate":65,"ocr_fuzzy_candidate":58}[match_type]
+            score+=28*len(eval_id.matched_keys)
+            score+=18*len(eval_id.heading_keys)
+            if eval_id.sibling_variant_conflict:
+                score-=40
         hit_count=0
         for token in tokens:
             stem=token[:min(8,max(4,len(token)-2))] if len(token)>5 else token
             if token.isdecimal():
+                if token not in number_tokens:
+                    continue
                 h=_contains_number(heading,token)
                 b=_contains_number(body,token)
                 if not (h or b):continue
@@ -408,6 +389,8 @@ def retrieve(db, subject, question, top_k=5):
             # Penalize matches on just one generic term of a long question.
             score+=round(24*hit_count/max(1,len(tokens)))
             candidates.append((score,{**dict(r),"identifier_match":match_type}))
+    if required_keys and not required_keys.issubset(covered_keys):
+        return []
     candidates.sort(key=lambda x:(-x[0],x[1]["doc_id"],x[1]["page"],x[1]["chunk_id"]))
     if candidates and not identifiers:
         threshold=max(20,candidates[0][0]*0.56)
@@ -589,6 +572,8 @@ def generate(question,evidence):
                           if e.get("extraction_method")=="ocr" else "текст")
             if e.get("identifier_match")=="homoglyph_candidate":
                 context_note+=", номер детали совпадает только по похожим буквам"
+            elif e.get("identifier_match")=="ocr_fuzzy_candidate":
+                context_note+=", обозначение совпало с допуском OCR (О/0, З/3) — проверь оригинал"
             blocks.append(f"[{n}] {e['title']}, стр. {e['page']}, {context_note}:\n{excerpt}")
         system=("Ты локальный справочный помощник для учебного машиностроительного стенда. "
                 "Отвечай на вопрос коротко, сразу по существу, одним-двумя предложениями. "
@@ -645,10 +630,12 @@ def generate(question,evidence):
         cited=structured.get("citations",[])
         if not isinstance(cited,list):cited=[]
         valid=sorted({n for n in cited if type(n) is int and 1<=n<=len(evidence)})
-        # Remove any raw citations in model text and append checked IDs.
-        answer=re.sub(r"\[\d{1,2}\]","",answer).strip()
-        if valid:
-            answer=answer+" "+" ".join(f"[{n}]" for n in valid)
+        if valid and not _citations_ground_identifiers(
+            question, answer, [evidence[n-1] for n in valid]
+        ):
+            valid=[]
+        # Keep validated inline [n] markers intact; strip only forged/unvalidated tags.
+        answer=_format_verified_citations(answer,valid)
         return {"answer":answer,"citations":valid,"citation_warning":not bool(valid),
                 "filtered_lines":rejected,
                 "generated_tokens":result.get("usage",{}).get("completion_tokens")}

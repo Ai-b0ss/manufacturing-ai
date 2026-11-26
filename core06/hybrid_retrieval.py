@@ -16,6 +16,18 @@ from collections import Counter
 
 from qdrant_client import QdrantClient,models
 from core06.db_client import DEFAULT_DATABASE,database_session,InvalidRequest
+from core06.text_grounding import (
+    build_pg_tsqueries,
+    contains_number,
+    evaluate_identifier_match,
+    extract_identifiers,
+    identifier_key,
+    non_identifier_tokens,
+    standalone_numbers,
+)
+
+DENSE_SCORE_THRESHOLD=0.82
+DENSE_ONLY_MIN_SCORE=0.85
 
 _STAGE_COLLECTION=os.environ.get("FACTORY_V06_STAGING_COLLECTION")
 if _STAGE_COLLECTION is not None:
@@ -116,22 +128,33 @@ def ensure_collection(client):
         raise RuntimeError("QDRANT_COLLECTION_SPARSE_SCHEMA_MISMATCH")
     return info
 
+def indexable_text(body:str,title:str="",designation:str="",limit:int=15000)->str:
+    """Combine document title, designation and chunk body for dense/sparse indexing."""
+    parts=[]
+    t=(title or "").strip()
+    d=(designation or "").strip()
+    if t:parts.append(t)
+    if d and d not in t:parts.append(d)
+    parts.append(body)
+    return "\n".join(parts)[:limit]
+
 def index_demo_corpus(encoder,client):
     """Explicit administrative job. Call only against synthetic P13 demo data."""
     ensure_collection(client)
     with database_session(admin=True) as con:
-        rows=con.execute("""SELECT c.id,c.document_id,c.body,d.scope_id
+        rows=con.execute("""SELECT c.id,c.document_id,c.body,d.scope_id,d.title,d.designation
              FROM core.document_chunk c
              JOIN core.document d ON d.id=c.document_id
              WHERE d.source_kind='p13-demo' AND d.deleted_at IS NULL
              ORDER BY c.id""").fetchall()
     if not rows or len(rows)>5000:raise RuntimeError("UNEXPECTED_PILOT_INDEX_SIZE")
-    vectors=encoder.embed([r[2] for r in rows])
+    indexed_texts=[indexable_text(r[2],r[4] or "",r[5] or "") for r in rows]
+    vectors=encoder.embed(indexed_texts)
     points=[]
-    for r,dense in zip(rows,vectors):
-        cid,did,body,scope=r
+    for r,text_for_index,dense in zip(rows,indexed_texts,vectors):
+        cid,did,_body,scope,_title,_designation=r
         point_id=str(uuid.uuid5(NAMESPACE,cid))
-        sparse=sparse_tokens(body)
+        sparse=sparse_tokens(text_for_index)
         if sparse is None:raise RuntimeError("EMPTY_SOURCE_CHUNK")
         payload={"tenant_id":TENANT,"document_id":did,
                  "chunk_id":cid,"acl_scope_id":scope}
@@ -150,15 +173,66 @@ def index_demo_corpus(encoder,client):
             "model":"intfloat/multilingual-e5-small",
             "source":"real PostgreSQL demo"}
 
-def rrf(rankings,limit):
+def rrf_scores(rankings):
     scores={}
-    for source,ids in rankings.items():
+    for _source,ids in rankings.items():
         seen=set()
         for i,cid in enumerate(ids):
             if cid in seen:continue
             seen.add(cid)
             scores[cid]=scores.get(cid,0.0)+1.0/(60+i+1)
+    return scores
+
+def rrf(rankings,limit):
+    scores=rrf_scores(rankings)
     return sorted(scores,key=lambda x:(-scores[x],x))[:limit*5]
+
+def _lexical_candidates(db,query,limit):
+    """RLS-scoped Russian + simple weighted lexical search over title, designation, body."""
+    ru_tsq,simple_tsq=build_pg_tsqueries(query)
+    if not ru_tsq and not simple_tsq:
+        return []
+    if ru_tsq and simple_tsq:
+        return db.execute("""SELECT c.id,
+                   ts_rank_cd(
+                     setweight(to_tsvector('russian',concat_ws(' ',d.title,d.designation)),'A') ||
+                     setweight(to_tsvector('russian',c.body),'B'),
+                     to_tsquery('russian',%s)
+                   ) +
+                   ts_rank_cd(
+                     setweight(to_tsvector('simple',translate(concat_ws(' ',d.title,d.designation),'.-','  ')),'A') ||
+                     setweight(to_tsvector('simple',translate(c.body,'.-','  ')),'B'),
+                     to_tsquery('simple',%s)
+                   ) AS rank
+               FROM core.document_chunk c
+               JOIN core.document d ON d.id=c.document_id
+               WHERE to_tsvector('russian',concat_ws(' ',d.title,d.designation,c.body)) @@ to_tsquery('russian',%s)
+                  OR to_tsvector('simple',translate(concat_ws(' ',d.title,d.designation,c.body),'.-','  ')) @@ to_tsquery('simple',%s)
+               ORDER BY rank DESC,c.id LIMIT %s""",
+               (ru_tsq,simple_tsq,ru_tsq,simple_tsq,limit)).fetchall()
+    if ru_tsq:
+        return db.execute("""SELECT c.id,
+                   ts_rank_cd(
+                     setweight(to_tsvector('russian',concat_ws(' ',d.title,d.designation)),'A') ||
+                     setweight(to_tsvector('russian',c.body),'B'),
+                     to_tsquery('russian',%s)
+                   ) AS rank
+               FROM core.document_chunk c
+               JOIN core.document d ON d.id=c.document_id
+               WHERE to_tsvector('russian',concat_ws(' ',d.title,d.designation,c.body)) @@ to_tsquery('russian',%s)
+               ORDER BY rank DESC,c.id LIMIT %s""",
+               (ru_tsq,ru_tsq,limit)).fetchall()
+    return db.execute("""SELECT c.id,
+               ts_rank_cd(
+                 setweight(to_tsvector('simple',translate(concat_ws(' ',d.title,d.designation),'.-','  ')),'A') ||
+                 setweight(to_tsvector('simple',translate(c.body,'.-','  ')),'B'),
+                 to_tsquery('simple',%s)
+               ) AS rank
+           FROM core.document_chunk c
+           JOIN core.document d ON d.id=c.document_id
+           WHERE to_tsvector('simple',translate(concat_ws(' ',d.title,d.designation,c.body),'.-','  ')) @@ to_tsquery('simple',%s)
+           ORDER BY rank DESC,c.id LIMIT %s""",
+           (simple_tsq,simple_tsq,limit)).fetchall()
 
 @dataclass(frozen=True)
 class Hit:
@@ -172,36 +246,56 @@ class Hit:
     extraction_method:str="text"
     designation:str=""
     doc_type:str="internal"
+    identifier_match:str|None=None
 
 class PolicyHybridRetriever:
-    def __init__(self,encoder,client):
+    def __init__(self,encoder,client,dense_score_threshold=DENSE_SCORE_THRESHOLD):
         self.encoder=encoder
         self.client=client
+        self.dense_score_threshold=dense_score_threshold
 
-    def collect_vector_candidates(self,allowed_scopes,query,limit=20):
-        if not allowed_scopes:return {"dense":[],"sparse":[]}
+    def _collect_vector_candidates_scored(self,allowed_scopes,query,limit=20):
+        if not allowed_scopes:
+            return {"dense":[],"sparse":[]},{"dense":{},"sparse":{}}
         filter_=models.Filter(must=[
             models.FieldCondition(key="tenant_id",match=models.MatchValue(value=TENANT)),
             models.FieldCondition(key="acl_scope_id",
                 match=models.MatchAny(any=sorted(allowed_scopes)))])
         output={}
+        scores={}
         vector=self.encoder.embed([query],query=True)[0]
         sparse=sparse_tokens(query)
         requests=[("dense",vector),("sparse",sparse)]
         for using,q in requests:
-            if q is None:output[using]=[];continue
-            res=self.client.query_points(collection_name=COLLECTION,
-                query=q,using=using,query_filter=filter_,
-                limit=limit,with_payload=True,with_vectors=False)
+            if q is None:
+                output[using]=[];scores[using]={};continue
+            kwargs=dict(collection_name=COLLECTION,query=q,using=using,
+                        query_filter=filter_,limit=limit,
+                        with_payload=True,with_vectors=False)
+            if using=="dense" and self.dense_score_threshold is not None:
+                kwargs["score_threshold"]=self.dense_score_threshold
+            res=self.client.query_points(**kwargs)
             ids=[]
+            src_scores={}
             for point in res.points:
                 payload=point.payload or {}
                 # A malicious index may return any IDs; hydration never trusts it.
                 if payload.get("tenant_id")!=TENANT:continue
                 cid=payload.get("chunk_id")
-                if isinstance(cid,str) and 0<len(cid)<=128:ids.append(cid)
+                pt_score=float(getattr(point,"score",0.0) or 0.0)
+                if using=="dense" and self.dense_score_threshold is not None and pt_score<self.dense_score_threshold:
+                    continue
+                if isinstance(cid,str) and 0<len(cid)<=128:
+                    ids.append(cid)
+                    if cid not in src_scores or pt_score>src_scores[cid]:
+                        src_scores[cid]=pt_score
             output[using]=ids
-        return output
+            scores[using]=src_scores
+        return output,scores
+
+    def collect_vector_candidates(self,allowed_scopes,query,limit=20):
+        rankings,_scores=self._collect_vector_candidates_scored(allowed_scopes,query,limit=limit)
+        return rankings
 
     def search(self,verified_actor,query,limit=10,oidc_issuer=None,oidc_sub=None):
         """Actor must be supplied by verified server-side Keycloak OIDC mapping."""
@@ -217,7 +311,8 @@ class PolicyHybridRetriever:
         if not allowed:return []
         # Both candidates and lexical search may be stale; hydration below is
         # a NEW PostgreSQL READ COMMITTED transaction at the moment of use.
-        vector_rankings=self.collect_vector_candidates(allowed,q,limit=min(50,lim*5))
+        vector_rankings,vector_scores=self._collect_vector_candidates_scored(
+            allowed,q,limit=min(50,lim*5))
         with database_session() as db:
             with db.transaction():
                 db.execute("SELECT set_config('factory.actor_id',%s,true)",(actor,))
@@ -229,12 +324,12 @@ class PolicyHybridRetriever:
                     row=db.execute("SELECT core.resolve_oidc_subject(%s,%s)",
                                    (oidc_issuer,oidc_sub)).fetchone()
                     if not row or row[0]!=actor:return []
-                lexical=db.execute("""SELECT id FROM core.document_chunk
-                       WHERE search_vector @@ plainto_tsquery('simple',%s)
-                       ORDER BY ts_rank_cd(search_vector,plainto_tsquery('simple',%s)) DESC,id
-                       LIMIT %s""",(q,q,lim*5)).fetchall()
-                rankings={**vector_rankings,"lexical":[r[0] for r in lexical]}
-                candidates=rrf(rankings,lim)
+                lexical_rows=_lexical_candidates(db,q,lim*5)
+                lexical_ids=[r[0] for r in lexical_rows]
+                lexical_scores={r[0]:float(r[1] or 0.0) for r in lexical_rows}
+                rankings={**vector_rankings,"lexical":lexical_ids}
+                rrf_map=rrf_scores(rankings)
+                candidates=sorted(rrf_map,key=lambda x:(-rrf_map[x],x))[:lim*5]
                 if not candidates:return []
                 rows=db.execute("""SELECT c.id,c.document_id,c.body,c.page_no,
                                       d.title,d.revision,c.extraction_method,
@@ -243,8 +338,59 @@ class PolicyHybridRetriever:
                        JOIN core.document d ON d.id=c.document_id
                        WHERE c.id=ANY(%s)""",(candidates,)).fetchall()
                 authorized={r[0]:r for r in rows}
-                return [Hit(r[0],r[1],r[4],r[2],r[3],r[5],
-                            1.0/(1+candidates.index(cid)),
-                            "ocr" if r[6]=="ocr" else "text",
-                            r[7] or "",r[8] or "internal")
-                        for cid in candidates if (r:=authorized.get(cid)) is not None][:lim]
+                q_ids=extract_identifiers(q)
+                required_keys={identifier_key(c) for c in q_ids}
+                num_tokens=standalone_numbers(q)
+                context_tokens=non_identifier_tokens(q)
+                dense_map=vector_scores.get("dense",{})
+                sparse_map=vector_scores.get("sparse",{})
+                max_rrf=3.0/61.0
+                covered_keys=set()
+                scored_hits=[]
+                for cid in candidates:
+                    r=authorized.get(cid)
+                    if r is None:continue
+                    body=r[2]
+                    title=r[4] or ""
+                    designation=r[7] or ""
+                    method="ocr" if r[6]=="ocr" else "text"
+                    full_norm=f"{title} {designation} {body}".casefold().replace("ё","е")
+                    if num_tokens and any(not contains_number(full_norm,num) for num in num_tokens):
+                        continue
+                    eval_id=evaluate_identifier_match(q,title,designation,body,method)
+                    if required_keys:
+                        if not eval_id.matched_keys:
+                            continue
+                        covered_keys.update(eval_id.matched_keys)
+                    else:
+                        dense_s=dense_map.get(cid,0.0)
+                        has_lex_or_sparse=(cid in lexical_scores) or (cid in sparse_map)
+                        if not has_lex_or_sparse and dense_s<DENSE_ONLY_MIN_SCORE:
+                            continue
+                    dense_s=dense_map.get(cid,0.0)
+                    lex_s=lexical_scores.get(cid,0.0)
+                    rrf_norm=min(1.0,rrf_map.get(cid,0.0)/max_rrf)
+                    base_score=(0.45*rrf_norm
+                                +0.35*max(0.0,min(1.0,dense_s))
+                                +0.20*min(1.0,lex_s/0.5))
+                    if required_keys:
+                        cov_ratio=len(eval_id.matched_keys)/len(required_keys)
+                        ctx_ratio=eval_id.corroborating_hits/max(1,len(context_tokens)) if context_tokens else 0.0
+                        quality_bonus={"exact":0.04,"homoglyph_candidate":0.02,"ocr_fuzzy_candidate":0.01}[eval_id.match_type]
+                        rank_score=(base_score
+                                    +0.25*cov_ratio
+                                    +0.15*len(eval_id.heading_keys)
+                                    +0.22*ctx_ratio
+                                    +quality_bonus
+                                    -(0.30 if eval_id.sibling_variant_conflict else 0.0))
+                    else:
+                        ctx_ratio=eval_id.corroborating_hits/max(1,len(context_tokens)) if context_tokens else 0.0
+                        rank_score=base_score+0.15*ctx_ratio
+                    display_score=round(max(0.0001,min(1.0,rank_score)),4)
+                    hit=Hit(r[0],r[1],title,body,r[3],r[5],display_score,
+                            method,designation,r[8] or "internal",eval_id.match_type)
+                    scored_hits.append((rank_score,hit))
+                if required_keys and not required_keys.issubset(covered_keys):
+                    return []
+                scored_hits.sort(key=lambda item:(-item[0],item[1].document_id,item[1].chunk_id))
+                return [hit for _rs,hit in scored_hits[:lim]]
