@@ -195,44 +195,48 @@ def _lexical_candidates(db,query,limit):
     if ru_tsq and simple_tsq:
         return db.execute("""SELECT c.id,
                    ts_rank_cd(
-                     setweight(to_tsvector('russian',concat_ws(' ',d.title,d.designation)),'A') ||
+                     setweight(to_tsvector('russian',d.title||' '||d.designation),'A') ||
                      setweight(to_tsvector('russian',c.body),'B'),
                      to_tsquery('russian',%s)
                    ) +
                    ts_rank_cd(
-                     setweight(to_tsvector('simple',translate(concat_ws(' ',d.title,d.designation),'.-','  ')),'A') ||
+                     setweight(to_tsvector('simple',translate(d.title||' '||d.designation,'.-','  ')),'A') ||
                      setweight(to_tsvector('simple',translate(c.body,'.-','  ')),'B'),
                      to_tsquery('simple',%s)
                    ) AS rank
                FROM core.document_chunk c
                JOIN core.document d ON d.id=c.document_id
-               WHERE to_tsvector('russian',concat_ws(' ',d.title,d.designation,c.body)) @@ to_tsquery('russian',%s)
-                  OR to_tsvector('simple',translate(concat_ws(' ',d.title,d.designation,c.body),'.-','  ')) @@ to_tsquery('simple',%s)
+               WHERE to_tsvector('russian'::regconfig,c.body) @@ to_tsquery('russian',%s)
+                  OR to_tsvector('russian'::regconfig,d.title||' '||d.designation) @@ to_tsquery('russian',%s)
+                  OR to_tsvector('simple'::regconfig,translate(c.body,'.-','  ')) @@ to_tsquery('simple',%s)
+                  OR to_tsvector('simple'::regconfig,translate(d.title||' '||d.designation,'.-','  ')) @@ to_tsquery('simple',%s)
                ORDER BY rank DESC,c.id LIMIT %s""",
-               (ru_tsq,simple_tsq,ru_tsq,simple_tsq,limit)).fetchall()
+               (ru_tsq,simple_tsq,ru_tsq,ru_tsq,simple_tsq,simple_tsq,limit)).fetchall()
     if ru_tsq:
         return db.execute("""SELECT c.id,
                    ts_rank_cd(
-                     setweight(to_tsvector('russian',concat_ws(' ',d.title,d.designation)),'A') ||
+                     setweight(to_tsvector('russian',d.title||' '||d.designation),'A') ||
                      setweight(to_tsvector('russian',c.body),'B'),
                      to_tsquery('russian',%s)
                    ) AS rank
                FROM core.document_chunk c
                JOIN core.document d ON d.id=c.document_id
-               WHERE to_tsvector('russian',concat_ws(' ',d.title,d.designation,c.body)) @@ to_tsquery('russian',%s)
+               WHERE to_tsvector('russian'::regconfig,c.body) @@ to_tsquery('russian',%s)
+                  OR to_tsvector('russian'::regconfig,d.title||' '||d.designation) @@ to_tsquery('russian',%s)
                ORDER BY rank DESC,c.id LIMIT %s""",
-               (ru_tsq,ru_tsq,limit)).fetchall()
+               (ru_tsq,ru_tsq,ru_tsq,limit)).fetchall()
     return db.execute("""SELECT c.id,
                ts_rank_cd(
-                 setweight(to_tsvector('simple',translate(concat_ws(' ',d.title,d.designation),'.-','  ')),'A') ||
+                 setweight(to_tsvector('simple',translate(d.title||' '||d.designation,'.-','  ')),'A') ||
                  setweight(to_tsvector('simple',translate(c.body,'.-','  ')),'B'),
                  to_tsquery('simple',%s)
                ) AS rank
            FROM core.document_chunk c
            JOIN core.document d ON d.id=c.document_id
-           WHERE to_tsvector('simple',translate(concat_ws(' ',d.title,d.designation,c.body),'.-','  ')) @@ to_tsquery('simple',%s)
+           WHERE to_tsvector('simple'::regconfig,translate(c.body,'.-','  ')) @@ to_tsquery('simple',%s)
+              OR to_tsvector('simple'::regconfig,translate(d.title||' '||d.designation,'.-','  ')) @@ to_tsquery('simple',%s)
            ORDER BY rank DESC,c.id LIMIT %s""",
-           (simple_tsq,simple_tsq,limit)).fetchall()
+           (simple_tsq,simple_tsq,simple_tsq,limit)).fetchall()
 
 @dataclass(frozen=True)
 class Hit:

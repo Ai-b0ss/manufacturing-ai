@@ -66,7 +66,11 @@ _COMPARISON_QUERY_PATTERN = re.compile(
     flags=re.IGNORECASE | re.UNICODE,
 )
 
-_CLAUSE_SPLIT_PATTERN = re.compile(r"[.!?;:\n]+")
+_ABBREV_BEFORE_DOT_RE = re.compile(
+    r"(?<!\w)(?:изд|дет|поз|пп|п|см|рис|табл|стр|гл|разд|др|пр|напр|ст|ч|"
+    r"т\.е|т\.д|т\.п|fig|no|pos|rev|ref|sec)$",
+    flags=re.IGNORECASE | re.UNICODE,
+)
 _COMPOUND_TOKEN_PATTERN = re.compile(r"(?u)[0-9A-Za-zА-Яа-яЁё]+(?:[.\-][0-9A-Za-zА-Яа-яЁё]+)*")
 _CITATION_TAG_PATTERN = re.compile(r"\[(\d{1,3})\]")
 
@@ -120,12 +124,31 @@ def non_identifier_tokens(text: str) -> list[str]:
     return [t for t in query_tokens(stripped) if not t.isdecimal()]
 
 
+def _last_clause(window: str) -> str:
+    """Return the trailing sentence/clause fragment before an identifier.
+
+    Preserves dots inside dotted ESKD/GOST identifiers (e.g. АБВГ.712345.004-02)
+    and common technical abbreviations (изд., дет., поз., п., рис., см.) while
+    splitting on true sentence boundaries and hard delimiters (!?;:\\n).
+    """
+    cut = 0
+    n = len(window)
+    for i, ch in enumerate(window):
+        if ch in "!?;:\n":
+            cut = i + 1
+        elif ch == ".":
+            if i > 0 and i + 1 < n and window[i - 1].isalnum() and window[i + 1].isalnum():
+                continue
+            if _ABBREV_BEFORE_DOT_RE.search(window[:i]):
+                continue
+            cut = i + 1
+    return window[cut:]
+
+
 def is_negative_mention(text: str, start: int) -> bool:
     """Return True if an identifier at offset `start` appears in an exclusion clause."""
     window = text[max(0, start - 96):start]
-    # Stay within the same sentence/clause before the identifier.
-    parts = _CLAUSE_SPLIT_PATTERN.split(window)
-    clause = parts[-1] if parts else window
+    clause = _last_clause(window)
     return _NEGATIVE_CONTEXT_PATTERN.search(clause) is not None
 
 

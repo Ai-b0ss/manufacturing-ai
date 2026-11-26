@@ -352,6 +352,41 @@ class QualityGroundingTests(unittest.TestCase):
         self.assertEqual(cards[0]["identifier_match"], "homoglyph_candidate")
         self.assertEqual(cards[1]["identifier_match"], "ocr_fuzzy_candidate")
 
+    def test_d1_negative_mention_preserves_dotted_codes_and_abbreviations(self):
+        # Dots inside ESKD codes or technical abbreviations must NOT break exclusion clauses
+        for body in (
+            "Не смешивать с АБВГ.712345.004-02 и базовым насосом Н-125.",
+            "Не смешивать с изд. Н-125 исполнения -02.",
+            "В отличие от п. 2, насос Н-125 рассчитан на 25 бар.",
+        ):
+            ev = tg.evaluate_identifier_match("Какое давление у Н-125?", "Насос Н-125М", "SYNTH_N125M", body)
+            self.assertEqual(ev.matched_keys, frozenset(), msg=body)
+            self.assertIn("Н125", ev.negative_only_keys, msg=body)
+
+        # True sentence boundary still starts a fresh positive clause
+        pos_body = "Не смешивать с базовым насосом. Насос Н-125 работает при 25 бар."
+        ev_pos = tg.evaluate_identifier_match("Какое давление у Н-125?", "Паспорт", "", pos_body)
+        self.assertIn("Н125", ev_pos.matched_keys)
+        self.assertEqual(ev_pos.negative_only_keys, frozenset())
+
+    def test_d3_fts_where_clauses_match_single_table_gin_indexes(self):
+        root = pathlib.Path(__file__).resolve().parent
+        schema = (root / "core06" / "schema.sql").read_text(encoding="utf-8")
+        for expected_idx in (
+            "chunk_fts_ru_gin ON core.document_chunk USING gin(to_tsvector('russian'::regconfig,body))",
+            "doc_fts_ru_gin ON core.document USING gin(to_tsvector('russian'::regconfig,title||' '||designation))",
+            "chunk_fts_simple_code_gin ON core.document_chunk USING gin(to_tsvector('simple'::regconfig,translate(body,'.-','  ')))",
+            "doc_fts_simple_code_gin ON core.document USING gin(to_tsvector('simple'::regconfig,translate(title||' '||designation,'.-','  ')))",
+        ):
+            self.assertIn(expected_idx, schema)
+        for rel in ("core06/db_client.py", "core06/hybrid_retrieval.py", "p2_gateway/app.py"):
+            src = (root / rel).read_text(encoding="utf-8")
+            self.assertNotIn("concat_ws(' ',d.title,d.designation,c.body)", src, msg=rel)
+            self.assertIn("to_tsvector('russian'::regconfig,c.body) @@ to_tsquery('russian',%s)", src, msg=rel)
+            self.assertIn("to_tsvector('russian'::regconfig,d.title||' '||d.designation) @@ to_tsquery('russian',%s)", src, msg=rel)
+            self.assertIn("to_tsvector('simple'::regconfig,translate(c.body,'.-','  ')) @@ to_tsquery('simple',%s)", src, msg=rel)
+            self.assertIn("to_tsvector('simple'::regconfig,translate(d.title||' '||d.designation,'.-','  ')) @@ to_tsquery('simple',%s)", src, msg=rel)
+
 
 if __name__ == "__main__":
     unittest.main()
