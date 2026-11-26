@@ -9,6 +9,10 @@ from core06.readiness import check_dependencies
 from tools import bringup_factory
 
 
+_ALLOWED_REASONS = frozenset({"backend_unavailable", "job_failed", "unexpected_error"})
+_ALLOWED_BACKENDS = frozenset({"postgres", "qdrant"})
+
+
 def indexer_state(path, now=None):
     try:
         state = json.loads(path.read_text(encoding="utf-8"))
@@ -18,11 +22,25 @@ def indexer_state(path, now=None):
             raise ValueError("invalid heartbeat")
     except (OSError, ValueError, KeyError, TypeError):
         return {"state": "unavailable"}
-    return {
-        "state": "stale" if status == "running" and age > 180 else status,
+    is_stale = (status == "running" and age > 180) or (status == "degraded" and age > 300)
+    result = {
+        "state": "stale" if is_stale else status,
         "last_reported_state": status,
         "age_seconds": round(age, 1),
     }
+    reason = state.get("reason")
+    if isinstance(reason, str) and reason in _ALLOWED_REASONS:
+        result["reason"] = reason
+    error_count = state.get("error_count")
+    if type(error_count) is int and error_count >= 0:
+        result["error_count"] = error_count
+    outage_checks = state.get("outage_checks")
+    if type(outage_checks) is int and outage_checks >= 0:
+        result["outage_checks"] = outage_checks
+    missing = state.get("missing_backends")
+    if isinstance(missing, list) and all(isinstance(x, str) and x in _ALLOWED_BACKENDS for x in missing):
+        result["missing_backends"] = sorted(set(missing))
+    return result
 
 
 def queue_status():
