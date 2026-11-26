@@ -9,11 +9,24 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 import logging
+import re
 from uuid import uuid4, uuid5
 
 from qdrant_client import models
 from core06.db_client import database_session
 from core06 import hybrid_retrieval as hybrid
+
+_SAFE_ERROR_CODE = re.compile(r"^[A-Z][A-Z0-9_]{2,64}\Z")
+
+
+def _safe_error_label(exc: BaseException) -> str:
+    """Return exception class plus allowlisted internal error code (never free-form text/secrets)."""
+    name = type(exc).__name__
+    if isinstance(exc, RuntimeError) and len(exc.args) == 1 and isinstance(exc.args[0], str):
+        code = exc.args[0]
+        if _SAFE_ERROR_CODE.fullmatch(code):
+            return f"{name} ({code})"
+    return name
 
 
 @dataclass(frozen=True)
@@ -118,7 +131,7 @@ def _process_available(db_factory, encoder, client):
                     if row != (True,):
                         raise RuntimeError("INDEX_ADVISORY_LOCK_RELEASE_FAILED")
     except Exception as exc:
-        logging.getLogger(__name__).warning("Index lock or session failed: %s", type(exc).__name__)
+        logging.getLogger(__name__).warning("Index lock or session failed: %s", _safe_error_label(exc))
         try:
             _mark(db_factory, task_id, lease, "failed")
         except Exception:
@@ -210,6 +223,9 @@ def _process_claimed(claimed, db_factory, encoder, client):
             raise RuntimeError("INDEX_LEASE_WAS_LOST")
         return IndexOutcome(doc_id, "indexed", count)
     except Exception as exc:
-        logging.getLogger(__name__).warning("Index job failed: %s", type(exc).__name__)
-        _mark(db_factory, task_id, lease, "failed")
+        logging.getLogger(__name__).warning("Index job failed: %s", _safe_error_label(exc))
+        try:
+            _mark(db_factory, task_id, lease, "failed")
+        except Exception:
+            pass
         return IndexOutcome(doc_id, "failed", 0)

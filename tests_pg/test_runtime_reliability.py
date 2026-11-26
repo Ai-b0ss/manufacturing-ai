@@ -51,6 +51,63 @@ class ReliabilityTests(unittest.TestCase):
             self.assertEqual(runtime_diagnostics.indexer_state(path, now=280)["state"], "running")
             self.assertEqual(runtime_diagnostics.indexer_state(path, now=281)["state"], "stale")
             self.assertEqual(runtime_diagnostics.indexer_state(path, now=99)["state"], "unavailable")
+            path.write_text(
+                json.dumps({
+                    "status": "degraded",
+                    "timestamp": 100,
+                    "reason": "backend_unavailable",
+                    "error_count": 1,
+                    "outage_checks": 14,
+                    "missing_backends": ["qdrant", "postgres", "postgres"],
+                }),
+                encoding="utf-8",
+            )
+            diag = runtime_diagnostics.indexer_state(path, now=220)
+            self.assertEqual(diag["state"], "degraded")
+            self.assertEqual(diag["reason"], "backend_unavailable")
+            self.assertEqual(diag["error_count"], 1)
+            self.assertEqual(diag["outage_checks"], 14)
+            self.assertEqual(diag["missing_backends"], ["postgres", "qdrant"])
+            self.assertEqual(runtime_diagnostics.indexer_state(path, now=401)["state"], "stale")
+            # Untrusted reason / backend strings must never pass through.
+            path.write_text(
+                json.dumps({
+                    "status": "degraded",
+                    "timestamp": 100,
+                    "reason": "secret-leak",
+                    "missing_backends": ["postgres", "evil-host"],
+                }),
+                encoding="utf-8",
+            )
+            sanitized = runtime_diagnostics.indexer_state(path, now=120)
+            self.assertNotIn("reason", sanitized)
+            self.assertNotIn("missing_backends", sanitized)
+
+    def test_worker_safe_error_label_redacts_freeform_messages(self):
+        import psycopg
+        from core06.ingest_index_worker import _safe_error_label
+
+        self.assertEqual(
+            _safe_error_label(RuntimeError("INVALID_INDEX_CHUNK_LENGTH")),
+            "RuntimeError (INVALID_INDEX_CHUNK_LENGTH)",
+        )
+        self.assertEqual(
+            _safe_error_label(RuntimeError("password=secret http://127.0.0.1")),
+            "RuntimeError",
+        )
+        self.assertEqual(
+            _safe_error_label(ConnectionError("password=secret")),
+            "ConnectionError",
+        )
+
+        script = Path(__file__).resolve().parents[1] / "tools" / "storage_index_worker_host.pyw"
+        loader = SourceFileLoader("storage_worker_psycopg_fixture", str(script))
+        spec = spec_from_loader(loader.name, loader)
+        host = module_from_spec(spec)
+        loader.exec_module(host)
+        self.assertTrue(host._is_backend_outage(psycopg.errors.ConnectionTimeout("connection timeout expired")))
+        self.assertTrue(host._is_backend_outage(psycopg.OperationalError("could not connect")))
+        self.assertFalse(host._is_backend_outage(ValueError("not a connectivity error")))
 
     def test_host_recovers_to_running_when_queue_is_empty_after_an_outage(self):
         script = Path(__file__).resolve().parents[1] / "tools" / "storage_index_worker_host.pyw"

@@ -22,6 +22,8 @@ import zipfile
 
 MAX_BYTES = 8 * 1024 * 1024
 MAX_TEXT = 85_000
+MAX_CHUNK_CHARS = 12_000
+MAX_CHUNKS = 100
 MEDIA = {
     ".pdf": "application/pdf",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -139,6 +141,36 @@ def _extract_worker(source: Path) -> dict:
     return payload
 
 
+def _split_page_text(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
+    """Split oversized single-page text into index-safe chunks without losing content."""
+    if len(text) <= max_chars:
+        return [text]
+    parts: list[str] = []
+    pos = 0
+    length = len(text)
+    min_cut = max(1, max_chars // 2)
+    while pos < length:
+        if length - pos <= max_chars:
+            tail = text[pos:].strip()
+            if tail:
+                parts.append(tail)
+            break
+        window_end = pos + max_chars
+        cut = -1
+        for sep in ("\n\n", "\n", " "):
+            found = text.rfind(sep, pos + min_cut, window_end)
+            if found != -1:
+                cut = found + len(sep)
+                break
+        if cut <= pos:
+            cut = window_end
+        piece = text[pos:cut].strip()
+        if piece:
+            parts.append(piece)
+        pos = cut
+    return parts
+
+
 def prepare_upload(filename: str, title: str, content: bytes, extractor=None) -> PreparedUpload:
     filename = _validate_filename(filename)
     if not isinstance(title, str) or not 1 <= len(title.strip()) <= 200:
@@ -153,7 +185,7 @@ def prepare_upload(filename: str, title: str, content: bytes, extractor=None) ->
     if not isinstance(extracted, dict) or not isinstance(extracted.get("pages"), list):
         raise UploadInputError("EXTRACTION_INVALID_RESULT")
     pages = extracted["pages"]
-    if not 1 <= len(pages) <= 100:
+    if not 1 <= len(pages) <= MAX_CHUNKS:
         raise UploadInputError("INVALID_EXTRACTED_PAGES")
     chunks = []
     total = 0
@@ -170,7 +202,10 @@ def prepare_upload(filename: str, title: str, content: bytes, extractor=None) ->
         total += len(body)
         if total > MAX_TEXT:
             raise UploadInputError("EXTRACTED_TEXT_TOO_LARGE")
-        chunks.append({"page": number, "text": body, "extraction_method": method})
+        for segment in _split_page_text(body):
+            chunks.append({"page": number, "text": segment, "extraction_method": method})
+            if len(chunks) > MAX_CHUNKS:
+                raise UploadInputError("INVALID_EXTRACTED_PAGES")
 
     return PreparedUpload(
         id="upload-" + uuid.uuid4().hex,
